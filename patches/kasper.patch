@@ -1,0 +1,840 @@
+diff --git a/Telegram/BUILD b/Telegram/BUILD
+index 9ad13cf3..f0b7d685 100644
+--- a/Telegram/BUILD
++++ b/Telegram/BUILD
+@@ -71,7 +71,9 @@ config_setting(
+ 
+ bool_flag(
+     name = "disableExtensions",
+-    build_setting_default = False,
++    # Kasper: собираем без расширений (виджеты, «Поделиться», уведомления) —
++    # их нельзя нормально подписать бесплатным Apple ID
++    build_setting_default = True,
+     visibility = ["//visibility:public"],
+ )
+ 
+@@ -629,7 +631,7 @@ plist_fragment(
+     template =
+     """
+     <key>CFBundleDisplayName</key>
+-    <string>Telegram</string>
++    <string>Kasper</string>
+     """
+ )
+ 
+@@ -1568,7 +1570,7 @@ plist_fragment(
+     <key>CFBundleDevelopmentRegion</key>
+     <string>en</string>
+     <key>CFBundleDisplayName</key>
+-    <string>Telegram</string>
++    <string>Kasper</string>
+     <key>CFBundleIdentifier</key>
+     <string>{telegram_bundle_id}</string>
+     <key>CFBundleName</key>
+diff --git a/Telegram/Telegram-iOS/Telegram.icon/Assets/Plane.svg b/Telegram/Telegram-iOS/Telegram.icon/Assets/Plane.svg
+index e475bcfd..aa9a33dd 100644
+--- a/Telegram/Telegram-iOS/Telegram.icon/Assets/Plane.svg
++++ b/Telegram/Telegram-iOS/Telegram.icon/Assets/Plane.svg
+@@ -1,7 +1,7 @@
+ <?xml version="1.0" encoding="UTF-8"?>
+-<svg width="1024px" height="1024px" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
++<svg width="1024px" height="1024px" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg">
+     <title>Plane</title>
+     <g id="Plane" stroke="none" fill="none" fill-rule="nonzero">
+-        <path d="M287.315632,507.666819 C406.984718,455.528898 486.782853,421.15639 526.710034,404.549294 C640.710251,357.13266 664.39852,348.895883 679.838202,348.621 C683.234017,348.56408 690.826804,349.405665 695.745092,353.396516 C699.897998,356.766313 701.040629,361.31843 701.587414,364.513367 C702.1342,367.708304 702.815079,374.986453 702.273832,380.673387 C696.09612,445.583141 669.36526,603.101997 655.766116,675.802034 C650.011808,706.564145 638.681397,716.878524 627.712247,717.887922 C603.873746,720.081578 585.77187,702.133777 562.683116,686.998808 C526.553773,663.315568 506.142993,648.572678 471.073211,625.462211 C430.544009,598.754068 456.817404,584.074808 479.914878,560.08479 C485.959597,553.806488 590.992581,458.270869 593.025497,449.604291 C593.279747,448.520391 593.515704,444.480123 591.115452,442.346714 C588.715199,440.213304 585.172634,440.942847 582.61622,441.52306 C578.99258,442.345492 521.275488,480.49435 409.464943,555.969631 C393.082138,567.219329 378.243103,572.700559 364.947836,572.413323 C350.290871,572.096667 322.096751,564.126052 301.137321,557.312967 C275.429726,548.956441 254.997841,544.538286 256.777,530.34632 C257.703696,522.954266 267.883239,515.394432 287.315632,507.666819 Z" id="Path-3" fill="#FFFFFF"></path>
++        <path id="Kasper-K" fill="#FFFFFF" d="M342.5,292 L390.5,292 C410.5,292 422.5,304 422.5,324 L422.5,478 L580.5,308 C592.5,296 602.5,292 618.5,292 L674.5,292 C696.5,292 704.5,314 689.5,330 L520.5,508 L698.5,696 C713.5,712 704.5,732 682.5,732 L622.5,732 C606.5,732 596.5,728 584.5,715 L422.5,540 L422.5,700 C422.5,720 410.5,732 390.5,732 L342.5,732 C322.5,732 310.5,720 310.5,700 L310.5,324 C310.5,304 322.5,292 342.5,292 Z"></path>
+     </g>
+-</svg>
+\ No newline at end of file
++</svg>
+diff --git a/Telegram/Telegram-iOS/Telegram.icon/icon.json b/Telegram/Telegram-iOS/Telegram.icon/icon.json
+index b1143f63..0a1ffbde 100644
+--- a/Telegram/Telegram-iOS/Telegram.icon/icon.json
++++ b/Telegram/Telegram-iOS/Telegram.icon/icon.json
+@@ -51,15 +51,15 @@
+             {
+               "value" : {
+                 "linear-gradient" : [
+-                  "display-p3:0.21569,0.68627,0.89020,1.00000",
+-                  "srgb:0.11373,0.57647,0.82353,1.00000"
++                  "srgb:0.60784,0.36078,1.00000,1.00000",
++                  "srgb:0.35686,0.12941,0.71373,1.00000"
+                 ]
+               }
+             },
+             {
+               "appearance" : "dark",
+               "value" : {
+-                "automatic-gradient" : "srgb:0.00000,0.47843,1.00000,1.00000"
++                "automatic-gradient" : "srgb:0.48627,0.22745,0.92941,1.00000"
+               }
+             }
+           ],
+diff --git a/Telegram/Telegram-iOS/ar.lproj/InfoPlist.strings b/Telegram/Telegram-iOS/ar.lproj/InfoPlist.strings
+index 174276a9..3bf8ea87 100644
+--- a/Telegram/Telegram-iOS/ar.lproj/InfoPlist.strings
++++ b/Telegram/Telegram-iOS/ar.lproj/InfoPlist.strings
+@@ -1,5 +1,5 @@
+ /* Localized versions of Info.plist keys */
+-"CFBundleDisplayName" = "تيليجرام";
++"CFBundleDisplayName" = "Kasper";
+ "NSContactsUsageDescription" = "سيقوم تيليجرام برفع جهات الاتصال الخاصة بك باستمرار إلى خوادم التخزين السحابية ذات التشفير العالي لتتمكن من التواصل مع أصدقائك من خلال جميع أجهزتك.";
+ "NSLocationWhenInUseUsageDescription" = "عندما ترغب في مشاركة مكانك مع أصدقائك، تيليجرام يحتاج لصلاحيات لعرض الخريطة لهم.";
+ "NSLocationAlwaysAndWhenInUseUsageDescription" = "عندما تختار أن تشارك مكانك بشكل حي مع أصدقائك في المحادثة، يحتاج تيليجرام إلى الوصول لموقعك في الخلفية حتى بعد إغلاق تيليجرام خلال فترة المشاركة.";
+diff --git a/Telegram/Telegram-iOS/en.lproj/Localizable.strings b/Telegram/Telegram-iOS/en.lproj/Localizable.strings
+index 8fe2749c..ac03b980 100644
+--- a/Telegram/Telegram-iOS/en.lproj/Localizable.strings
++++ b/Telegram/Telegram-iOS/en.lproj/Localizable.strings
+@@ -401,25 +401,25 @@
+ "Date.ChatDateHeaderYear" = "%1$@ %2$@, %3$@";
+ 
+ // Tour
+-"Tour.Title1" = "Telegram";
+-"Tour.Text1" = "The world's **fastest** messaging app.\nIt is **free** and **secure**.";
++"Tour.Title1" = "Kasper";
++"Tour.Text1" = "Твой **Telegram**, но в стиле **Kasper**.\nТе же чаты — больше свободы.";
+ 
+-"Tour.Title2" = "Fast";
+-"Tour.Text2" = "**Telegram** delivers messages\nfaster than any other application.";
++"Tour.Title2" = "Быстро";
++"Tour.Text2" = "Работает на официальных серверах\nTelegram — сообщения летят мгновенно.";
+ 
+-"Tour.Title3" = "Powerful";
+-"Tour.Text3" = "**Telegram** has no limits on\nthe size of your media and chats.";
++"Tour.Title3" = "Призрак";
++"Tour.Text3" = "Скрывай «в сети», «печатает…»\nи отметки о прочтении.";
+ 
+-"Tour.Title4" = "Secure";
+-"Tour.Text4" = "**Telegram** keeps your messages\nsafe from hacker attacks.";
++"Tour.Title4" = "Надёжно";
++"Tour.Text4" = "Шифрование Telegram\nи никаких посторонних серверов.";
+ 
+-"Tour.Title5" = "Cloud-Based";
+-"Tour.Text5" = "**Telegram** lets you access your\nmessages from multiple devices.";
++"Tour.Title5" = "Облако";
++"Tour.Text5" = "Все чаты синхронизируются\nс другими твоими устройствами.";
+ 
+-"Tour.Title6" = "Free";
+-"Tour.Text6" = "**Telegram** provides free unlimited\ncloud storage for chats and media.";
++"Tour.Title6" = "Твой стиль";
++"Tour.Text6" = "Раздел **Kasper** в настройках —\nфункции, которых нет в обычном клиенте.";
+ 
+-"Tour.StartButton" = "Start Messaging";
++"Tour.StartButton" = "Начать";
+ 
+ // Login
+ "Login.PhoneAndCountryHelp" = "Please confirm your country code\nand enter your phone number.";
+diff --git a/Telegram/Telegram-iOS/ko.lproj/InfoPlist.strings b/Telegram/Telegram-iOS/ko.lproj/InfoPlist.strings
+index b692e0af..c188bebb 100644
+--- a/Telegram/Telegram-iOS/ko.lproj/InfoPlist.strings
++++ b/Telegram/Telegram-iOS/ko.lproj/InfoPlist.strings
+@@ -1,5 +1,5 @@
+ /* Localized versions of Info.plist keys */
+-"CFBundleDisplayName" = "텔레그램";
++"CFBundleDisplayName" = "Kasper";
+ "NSContactsUsageDescription" = "Telegram will continuously upload your contacts to its heavily encrypted cloud servers to let you connect with your friends across all your devices.";
+ "NSLocationWhenInUseUsageDescription" = "친구에게 회원님의 위치를 전송할 경우 위치를 지도에 표시하기 위해 텔레그램이 위치 정보에 접근할 수 있어야 합니다.";
+ "NSLocationAlwaysUsageDescription" = "친구에게 회원님의 위치를 전송할 경우 위치를 지도에 표시하기 위해 텔레그램이 위치 정보에 접근할 수 있어야 합니다. 애플워치에 위치 전송을 위해서도 필요합니다.";
+diff --git a/submodules/RMIntro/BUILD b/submodules/RMIntro/BUILD
+index aa3b3ca4..2fb21e7a 100644
+--- a/submodules/RMIntro/BUILD
++++ b/submodules/RMIntro/BUILD
+@@ -31,6 +31,7 @@ objc_library(
+         "Foundation",
+         "UIKit",
+         "GLKit",
++        "QuartzCore",
+     ],
+     visibility = [
+         "//visibility:public",
+diff --git a/submodules/RMIntro/Sources/platform/ios/RMIntroViewController.m b/submodules/RMIntro/Sources/platform/ios/RMIntroViewController.m
+index 2b2977e4..6a0df903 100644
+--- a/submodules/RMIntro/Sources/platform/ios/RMIntroViewController.m
++++ b/submodules/RMIntro/Sources/platform/ios/RMIntroViewController.m
+@@ -16,6 +16,7 @@
+ #include "texture_helper.h"
+ 
+ #import <SSignalKit/SSignalKit.h>
++#import <QuartzCore/QuartzCore.h>
+ 
+ #import <LegacyComponents/LegacyComponents.h>
+ 
+@@ -108,6 +109,8 @@ typedef enum {
+     UIView *_startButton;
+     
+     bool _loadedView;
++    
++    UIView *_kasperLogoView;
+ }
+ @end
+ 
+@@ -194,7 +197,7 @@ typedef enum {
+                     strongSelf->_alternativeLocalizationInfo = next;
+                     
+                     [strongSelf->_alternativeLanguageButton setTitle:next.continueWithLanguageString forState:UIControlStateNormal];
+-                    strongSelf->_alternativeLanguageButton.hidden = false;
++                    strongSelf->_alternativeLanguageButton.hidden = true;
+                     [strongSelf->_alternativeLanguageButton sizeToFit];
+                     
+                     if ([strongSelf isViewLoaded]) {
+@@ -303,12 +306,60 @@ typedef enum {
+         
+         [self setupGL];
+         [self.view addSubview:_glkView];
++        [self kasperAddLogoToView:_glkView size:size];
+         
+         [self startTimer];
+         _isOpenGLLoaded = true;
+     }
+ }
+ 
++// Kasper: логотип вместо стандартного самолётика Telegram.
++- (void)kasperAddLogoToView:(UIView *)hostView size:(CGFloat)size
++{
++    [_kasperLogoView removeFromSuperview];
++    
++    UIView *container = [[UIView alloc] initWithFrame:CGRectMake(0.0, 0.0, size, size)];
++    container.backgroundColor = _backgroundColor;
++    container.userInteractionEnabled = false;
++    container.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
++    
++    CGFloat circleSize = floor(size * 0.72);
++    UIView *circle = [[UIView alloc] initWithFrame:CGRectMake(floor((size - circleSize) / 2.0), floor((size - circleSize) / 2.0), circleSize, circleSize)];
++    circle.layer.cornerRadius = circleSize / 2.0;
++    circle.layer.masksToBounds = true;
++    
++    CAGradientLayer *gradient = [CAGradientLayer layer];
++    gradient.frame = circle.bounds;
++    gradient.colors = @[
++        (id)[UIColor colorWithRed:0.61 green:0.36 blue:1.0 alpha:1.0].CGColor,
++        (id)[UIColor colorWithRed:0.36 green:0.13 blue:0.71 alpha:1.0].CGColor
++    ];
++    gradient.startPoint = CGPointMake(0.0, 0.0);
++    gradient.endPoint = CGPointMake(1.0, 1.0);
++    [circle.layer addSublayer:gradient];
++    
++    UILabel *letter = [[UILabel alloc] initWithFrame:circle.bounds];
++    letter.text = @"K";
++    letter.textAlignment = NSTextAlignmentCenter;
++    letter.textColor = [UIColor whiteColor];
++    letter.font = [UIFont systemFontOfSize:floor(circleSize * 0.56) weight:UIFontWeightHeavy];
++    [circle addSubview:letter];
++    
++    [container addSubview:circle];
++    [hostView addSubview:container];
++    _kasperLogoView = container;
++    
++    // Плавное «дыхание» логотипа
++    CABasicAnimation *pulse = [CABasicAnimation animationWithKeyPath:@"transform.scale"];
++    pulse.fromValue = @(1.0);
++    pulse.toValue = @(1.06);
++    pulse.duration = 1.6;
++    pulse.autoreverses = true;
++    pulse.repeatCount = HUGE_VALF;
++    pulse.timingFunction = [CAMediaTimingFunction functionWithName:kCAMediaTimingFunctionEaseInEaseOut];
++    [circle.layer addAnimation:pulse forKey:@"kasperPulse"];
++}
++
+ - (void)freeGL
+ {
+     if (!_isOpenGLLoaded)
+@@ -320,6 +371,8 @@ typedef enum {
+         [EAGLContext setCurrentContext:nil];
+ 
+     _context = nil;
++    [_kasperLogoView removeFromSuperview];
++    _kasperLogoView = nil;
+     [_glkView removeFromSuperview];
+     _glkView = nil;
+     _isOpenGLLoaded = false;
+@@ -390,6 +443,13 @@ typedef enum {
+ }
+ 
+ - (UIView *)createAnimationSnapshot {
++    if (_kasperLogoView != nil) {
++        UIView *snapshot = [_kasperLogoView snapshotViewAfterScreenUpdates:false];
++        if (snapshot != nil) {
++            snapshot.frame = _glkView.frame;
++            return snapshot;
++        }
++    }
+     UIImage *image = _glkView.snapshot;
+     UIImageView *imageView = [[UIImageView alloc] initWithFrame:_glkView.frame];
+     imageView.image = image;
+diff --git a/submodules/SettingsUI/Sources/Kasper/KasperSettingsController.swift b/submodules/SettingsUI/Sources/Kasper/KasperSettingsController.swift
+new file mode 100644
+index 00000000..f3654e9b
+--- /dev/null
++++ b/submodules/SettingsUI/Sources/Kasper/KasperSettingsController.swift
+@@ -0,0 +1,307 @@
++import Foundation
++import UIKit
++import Display
++import SwiftSignalKit
++import TelegramCore
++import TelegramPresentationData
++import ItemListUI
++import PresentationDataUtils
++import AccountContext
++
++// MARK: - Состояние
++
++private struct KasperSettingsState: Equatable {
++    var hideOnline: Bool
++    var hideReadReceipts: Bool
++    var hideTyping: Bool
++    var markDeleted: Bool
++    var coins: Int
++    var nickname: String
++
++    static func current() -> KasperSettingsState {
++        return KasperSettingsState(
++            hideOnline: KasperSettings.ghostHideOnline,
++            hideReadReceipts: KasperSettings.ghostHideReadReceipts,
++            hideTyping: KasperSettings.ghostHideTyping,
++            markDeleted: KasperSettings.markDeletedMessages,
++            coins: KasperSettings.coins,
++            nickname: KasperSettings.localNickname
++        )
++    }
++}
++
++public func kasperFormatCoins(_ value: Int) -> String {
++    let formatter = NumberFormatter()
++    formatter.numberStyle = .decimal
++    formatter.groupingSeparator = " "
++    formatter.usesGroupingSeparator = true
++    return formatter.string(from: NSNumber(value: value)) ?? "\(value)"
++}
++
++// MARK: - Аргументы
++
++private final class KasperSettingsControllerArguments {
++    let updateHideOnline: (Bool) -> Void
++    let updateHideReadReceipts: (Bool) -> Void
++    let updateHideTyping: (Bool) -> Void
++    let updateMarkDeleted: (Bool) -> Void
++    let updateCoins: (Int32) -> Void
++    let updateNickname: (String) -> Void
++
++    init(
++        updateHideOnline: @escaping (Bool) -> Void,
++        updateHideReadReceipts: @escaping (Bool) -> Void,
++        updateHideTyping: @escaping (Bool) -> Void,
++        updateMarkDeleted: @escaping (Bool) -> Void,
++        updateCoins: @escaping (Int32) -> Void,
++        updateNickname: @escaping (String) -> Void
++    ) {
++        self.updateHideOnline = updateHideOnline
++        self.updateHideReadReceipts = updateHideReadReceipts
++        self.updateHideTyping = updateHideTyping
++        self.updateMarkDeleted = updateMarkDeleted
++        self.updateCoins = updateCoins
++        self.updateNickname = updateNickname
++    }
++}
++
++// MARK: - Строки списка
++
++private enum KasperSettingsSection: Int32 {
++    case ghost
++    case deleted
++    case coins
++    case nickname
++    case about
++}
++
++private enum KasperSettingsEntry: ItemListNodeEntry {
++    case ghostHeader
++    case ghostOnline(Bool)
++    case ghostRead(Bool)
++    case ghostTyping(Bool)
++    case ghostFooter
++
++    case deletedHeader
++    case deletedValue(Bool)
++    case deletedFooter
++
++    case coinsHeader
++    case coinsBalance(Int)
++    case coinsSlider(Int32)
++    case coinsFooter
++
++    case nicknameHeader
++    case nicknameInput(String)
++    case nicknameFooter
++
++    case about
++
++    var section: ItemListSectionId {
++        switch self {
++        case .ghostHeader, .ghostOnline, .ghostRead, .ghostTyping, .ghostFooter:
++            return KasperSettingsSection.ghost.rawValue
++        case .deletedHeader, .deletedValue, .deletedFooter:
++            return KasperSettingsSection.deleted.rawValue
++        case .coinsHeader, .coinsBalance, .coinsSlider, .coinsFooter:
++            return KasperSettingsSection.coins.rawValue
++        case .nicknameHeader, .nicknameInput, .nicknameFooter:
++            return KasperSettingsSection.nickname.rawValue
++        case .about:
++            return KasperSettingsSection.about.rawValue
++        }
++    }
++
++    var stableId: Int32 {
++        switch self {
++        case .ghostHeader:
++            return 0
++        case .ghostOnline:
++            return 1
++        case .ghostRead:
++            return 2
++        case .ghostTyping:
++            return 3
++        case .ghostFooter:
++            return 4
++        case .deletedHeader:
++            return 10
++        case .deletedValue:
++            return 11
++        case .deletedFooter:
++            return 12
++        case .coinsHeader:
++            return 20
++        case .coinsBalance:
++            return 21
++        case .coinsSlider:
++            return 22
++        case .coinsFooter:
++            return 23
++        case .nicknameHeader:
++            return 30
++        case .nicknameInput:
++            return 31
++        case .nicknameFooter:
++            return 32
++        case .about:
++            return 40
++        }
++    }
++
++    static func <(lhs: KasperSettingsEntry, rhs: KasperSettingsEntry) -> Bool {
++        return lhs.stableId < rhs.stableId
++    }
++
++    func item(presentationData: ItemListPresentationData, arguments: Any) -> ListViewItem {
++        let arguments = arguments as! KasperSettingsControllerArguments
++        switch self {
++        case .ghostHeader:
++            return ItemListSectionHeaderItem(presentationData: presentationData, text: "👻 ПРИЗРАК", sectionId: self.section)
++        case let .ghostOnline(value):
++            return ItemListSwitchItem(presentationData: presentationData, systemStyle: .glass, title: "Скрывать «в сети»", value: value, sectionId: self.section, style: .blocks, updated: { value in
++                arguments.updateHideOnline(value)
++            })
++        case let .ghostRead(value):
++            return ItemListSwitchItem(presentationData: presentationData, systemStyle: .glass, title: "Не отправлять прочтение", value: value, sectionId: self.section, style: .blocks, updated: { value in
++                arguments.updateHideReadReceipts(value)
++            })
++        case let .ghostTyping(value):
++            return ItemListSwitchItem(presentationData: presentationData, systemStyle: .glass, title: "Скрывать «печатает…»", value: value, sectionId: self.section, style: .blocks, updated: { value in
++                arguments.updateHideTyping(value)
++            })
++        case .ghostFooter:
++            return ItemListTextItem(presentationData: presentationData, text: .markdown("Kasper не отправляет серверу Telegram соответствующие сигналы. Сообщения, которые вы читаете, помечаются прочитанными только у вас. Внимание: Telegram может ограничивать аккаунты за нестандартное поведение сторонних клиентов — используйте на свой риск. Для официального способа скрыть время захода откройте **Конфиденциальность → Время захода**."), sectionId: self.section)
++        case .deletedHeader:
++            return ItemListSectionHeaderItem(presentationData: presentationData, text: "🗑 УДАЛЁННЫЕ СООБЩЕНИЯ", sectionId: self.section)
++        case let .deletedValue(value):
++            return ItemListSwitchItem(presentationData: presentationData, systemStyle: .glass, title: "Отмечать удалённые", value: value, sectionId: self.section, style: .blocks, updated: { value in
++                arguments.updateMarkDeleted(value)
++            })
++        case .deletedFooter:
++            return ItemListTextItem(presentationData: presentationData, text: .plain("Если собеседник удалит сообщение в личном чате, на его месте останется отметка «🗑 Сообщение удалено». Текст и файлы удалённого сообщения не сохраняются."), sectionId: self.section)
++        case .coinsHeader:
++            return ItemListSectionHeaderItem(presentationData: presentationData, text: "🪙 KASPER COINS", sectionId: self.section)
++        case let .coinsBalance(value):
++            return ItemListDisclosureItem(presentationData: presentationData, systemStyle: .glass, title: "Баланс", label: "\(kasperFormatCoins(value)) 🪙", sectionId: self.section, style: .blocks, disclosureStyle: .none, action: nil)
++        case let .coinsSlider(value):
++            return ThemeSettingsBrightnessItem(theme: presentationData.theme, value: value, sectionId: self.section, updated: { value in
++                arguments.updateCoins(value)
++            })
++        case .coinsFooter:
++            return ItemListTextItem(presentationData: presentationData, text: .plain("Внутренняя валюта Kasper — просто счётчик для красоты. Это не Telegram Stars: на баланс Stars, подарки и покупки не влияет."), sectionId: self.section)
++        case .nicknameHeader:
++            return ItemListSectionHeaderItem(presentationData: presentationData, text: "🏷 ЛОКАЛЬНЫЙ НИК", sectionId: self.section)
++        case let .nicknameInput(value):
++            return ItemListSingleLineInputItem(presentationData: presentationData, systemStyle: .glass, title: NSAttributedString(string: "@", textColor: presentationData.theme.list.itemPrimaryTextColor), text: value, placeholder: "kasper_boss", type: .username, clearType: .always, maxLength: 32, sectionId: self.section, textUpdated: { value in
++                arguments.updateNickname(value)
++            }, action: {
++            })
++        case .nicknameFooter:
++            return ItemListTextItem(presentationData: presentationData, text: .plain("Показывается только в Kasper с пометкой «локально». Ваш настоящий username в Telegram не меняется и другим не виден."), sectionId: self.section)
++        case .about:
++            return ItemListTextItem(presentationData: presentationData, text: .plain("Kasper — неофициальный клиент на открытом коде Telegram. Работает через официальный API и серверы Telegram. Все настройки этого раздела хранятся только на этом устройстве."), sectionId: self.section)
++        }
++    }
++}
++
++private func kasperSettingsEntries(state: KasperSettingsState) -> [KasperSettingsEntry] {
++    var entries: [KasperSettingsEntry] = []
++
++    entries.append(.ghostHeader)
++    entries.append(.ghostOnline(state.hideOnline))
++    entries.append(.ghostRead(state.hideReadReceipts))
++    entries.append(.ghostTyping(state.hideTyping))
++    entries.append(.ghostFooter)
++
++    entries.append(.deletedHeader)
++    entries.append(.deletedValue(state.markDeleted))
++    entries.append(.deletedFooter)
++
++    entries.append(.coinsHeader)
++    entries.append(.coinsBalance(state.coins))
++    entries.append(.coinsSlider(Int32(state.coins / 10_000)))
++    entries.append(.coinsFooter)
++
++    entries.append(.nicknameHeader)
++    entries.append(.nicknameInput(state.nickname))
++    entries.append(.nicknameFooter)
++
++    entries.append(.about)
++
++    return entries
++}
++
++// MARK: - Контроллер
++
++public func kasperSettingsController(context: AccountContext) -> ViewController {
++    let initialState = KasperSettingsState.current()
++    let statePromise = ValuePromise(initialState, ignoreRepeated: true)
++    let stateValue = Atomic(value: initialState)
++    let updateState: ((KasperSettingsState) -> KasperSettingsState) -> Void = { f in
++        statePromise.set(stateValue.modify { f($0) })
++    }
++
++    let arguments = KasperSettingsControllerArguments(
++        updateHideOnline: { value in
++            KasperSettings.ghostHideOnline = value
++            updateState { state in
++                var state = state
++                state.hideOnline = value
++                return state
++            }
++        },
++        updateHideReadReceipts: { value in
++            KasperSettings.ghostHideReadReceipts = value
++            updateState { state in
++                var state = state
++                state.hideReadReceipts = value
++                return state
++            }
++        },
++        updateHideTyping: { value in
++            KasperSettings.ghostHideTyping = value
++            updateState { state in
++                var state = state
++                state.hideTyping = value
++                return state
++            }
++        },
++        updateMarkDeleted: { value in
++            KasperSettings.markDeletedMessages = value
++            updateState { state in
++                var state = state
++                state.markDeleted = value
++                return state
++            }
++        },
++        updateCoins: { value in
++            let coins = Int(value) * 10_000
++            KasperSettings.coins = coins
++            updateState { state in
++                var state = state
++                state.coins = KasperSettings.coins
++                return state
++            }
++        },
++        updateNickname: { value in
++            let cleaned = value.trimmingCharacters(in: .whitespacesAndNewlines)
++            KasperSettings.localNickname = cleaned
++            updateState { state in
++                var state = state
++                state.nickname = value
++                return state
++            }
++        }
++    )
++
++    let signal = combineLatest(queue: .mainQueue(), context.sharedContext.presentationData, statePromise.get())
++    |> map { presentationData, state -> (ItemListControllerState, (ItemListNodeState, Any)) in
++        let controllerState = ItemListControllerState(presentationData: ItemListPresentationData(presentationData), title: .text("Kasper"), leftNavigationButton: nil, rightNavigationButton: nil, backNavigationButton: ItemListBackButton(title: presentationData.strings.Common_Back))
++        let listState = ItemListNodeState(presentationData: ItemListPresentationData(presentationData), entries: kasperSettingsEntries(state: state), style: .blocks, animateChanges: false)
++        return (controllerState, (listState, arguments))
++    }
++
++    let controller = ItemListController(context: context, state: signal)
++    return controller
++}
+diff --git a/submodules/TelegramCore/Sources/Kasper/KasperSettings.swift b/submodules/TelegramCore/Sources/Kasper/KasperSettings.swift
+new file mode 100644
+index 00000000..05a43f9f
+--- /dev/null
++++ b/submodules/TelegramCore/Sources/Kasper/KasperSettings.swift
+@@ -0,0 +1,102 @@
++import Foundation
++import Postbox
++
++/// Локальные настройки клиента Kasper. Хранятся только на устройстве (UserDefaults)
++/// и никогда не отправляются на серверы Telegram.
++public enum KasperSettings {
++    private static var defaults: UserDefaults {
++        return UserDefaults.standard
++    }
++
++    private enum Key {
++        static let ghostHideOnline = "kasper.ghost.hideOnline"
++        static let ghostHideReadReceipts = "kasper.ghost.hideReadReceipts"
++        static let ghostHideTyping = "kasper.ghost.hideTyping"
++        static let markDeletedMessages = "kasper.deleted.mark"
++        static let coins = "kasper.coins"
++        static let localNickname = "kasper.localNickname"
++    }
++
++    public static let deletedMessageText = "🗑 Сообщение удалено"
++    public static let maxCoins: Int = 1_000_000
++
++    /// Призрак: не сообщать серверу, что вы «в сети».
++    public static var ghostHideOnline: Bool {
++        get { return defaults.bool(forKey: Key.ghostHideOnline) }
++        set { defaults.set(newValue, forKey: Key.ghostHideOnline) }
++    }
++
++    /// Призрак: не отправлять отметки о прочтении (сообщения помечаются прочитанными только у вас).
++    public static var ghostHideReadReceipts: Bool {
++        get { return defaults.bool(forKey: Key.ghostHideReadReceipts) }
++        set { defaults.set(newValue, forKey: Key.ghostHideReadReceipts) }
++    }
++
++    /// Призрак: не отправлять статус «печатает…».
++    public static var ghostHideTyping: Bool {
++        get { return defaults.bool(forKey: Key.ghostHideTyping) }
++        set { defaults.set(newValue, forKey: Key.ghostHideTyping) }
++    }
++
++    /// Показывать отметку «Сообщение удалено» вместо бесследного исчезновения
++    /// сообщений, удалённых собеседником в личном чате. Текст удалённого сообщения не сохраняется.
++    public static var markDeletedMessages: Bool {
++        get { return defaults.bool(forKey: Key.markDeletedMessages) }
++        set { defaults.set(newValue, forKey: Key.markDeletedMessages) }
++    }
++
++    /// Kasper Coins — внутренний визуальный счётчик. Не связан с Telegram Stars и покупками.
++    public static var coins: Int {
++        get { return max(0, min(maxCoins, defaults.integer(forKey: Key.coins))) }
++        set { defaults.set(max(0, min(maxCoins, newValue)), forKey: Key.coins) }
++    }
++
++    /// Локальный ник: виден только в Kasper и не меняет настоящий username.
++    public static var localNickname: String {
++        get { return defaults.string(forKey: Key.localNickname) ?? "" }
++        set { defaults.set(newValue, forKey: Key.localNickname) }
++    }
++}
++
++/// Вместо удаления входящих сообщений в личных чатах заменяет их содержимое на отметку
++/// «Сообщение удалено» (текст и медиа удалённого сообщения не сохраняются).
++/// Возвращает глобальные id, которые нужно удалить обычным способом.
++func kasperMarkRemotelyDeletedMessages(transaction: Transaction, mediaBox: MediaBox, globalIds: [Int32]) -> [Int32] {
++    var remaining: [Int32] = []
++    var resourceIds: [MediaResourceId] = []
++    for globalId in globalIds {
++        guard let messageId = transaction.messageIdsForGlobalIds([globalId]).first,
++              messageId.peerId.namespace == Namespaces.Peer.CloudUser,
++              let message = transaction.getMessage(messageId),
++              message.flags.contains(.Incoming) else {
++            remaining.append(globalId)
++            continue
++        }
++        for media in message.media {
++            addMessageMediaResourceIdsToRemove(media: media, resourceIds: &resourceIds)
++        }
++        transaction.updateMessage(messageId, update: { currentMessage in
++            return .update(StoreMessage(
++                id: currentMessage.id,
++                customStableId: nil,
++                globallyUniqueId: currentMessage.globallyUniqueId,
++                groupingKey: nil,
++                threadId: currentMessage.threadId,
++                timestamp: currentMessage.timestamp,
++                flags: StoreMessageFlags(currentMessage.flags),
++                tags: [],
++                globalTags: [],
++                localTags: [],
++                forwardInfo: nil,
++                authorId: currentMessage.author?.id,
++                text: KasperSettings.deletedMessageText,
++                attributes: [],
++                media: []
++            ))
++        })
++    }
++    if !resourceIds.isEmpty {
++        let _ = mediaBox.removeCachedResources(Array(Set(resourceIds)), force: true).start()
++    }
++    return remaining
++}
+diff --git a/submodules/TelegramCore/Sources/State/AccountStateManagementUtils.swift b/submodules/TelegramCore/Sources/State/AccountStateManagementUtils.swift
+index 58db6c71..5b4ab6ab 100644
+--- a/submodules/TelegramCore/Sources/State/AccountStateManagementUtils.swift
++++ b/submodules/TelegramCore/Sources/State/AccountStateManagementUtils.swift
+@@ -4440,14 +4440,21 @@ func replayFinalState(
+                     }
+                 }
+             case let .DeleteMessagesWithGlobalIds(ids):
++                // Kasper: входящие сообщения, удалённые собеседником в личном чате, превращаются в отметку
++                let idsToDelete: [Int32]
++                if KasperSettings.markDeletedMessages {
++                    idsToDelete = kasperMarkRemotelyDeletedMessages(transaction: transaction, mediaBox: mediaBox, globalIds: ids)
++                } else {
++                    idsToDelete = ids
++                }
+                 var resourceIds: [MediaResourceId] = []
+-                transaction.deleteMessagesWithGlobalIds(ids, forEachMedia: { media in
++                transaction.deleteMessagesWithGlobalIds(idsToDelete, forEachMedia: { media in
+                     addMessageMediaResourceIdsToRemove(media: media, resourceIds: &resourceIds)
+                 })
+                 if !resourceIds.isEmpty {
+                     let _ = mediaBox.removeCachedResources(Array(Set(resourceIds)), force: true).start()
+                 }
+-                deletedMessageIds.append(contentsOf: ids.map { .global($0) })
++                deletedMessageIds.append(contentsOf: idsToDelete.map { .global($0) })
+             case let .DeleteMessages(ids):
+                 _internal_deleteMessages(transaction: transaction, mediaBox: mediaBox, ids: ids, manualAddMessageThreadStatsDifference: { id, add, remove in
+                     addMessageThreadStatsDifference(threadKey: id, remove: remove, addedMessagePeer: nil, addedMessageId: nil, isOutgoing: false)
+diff --git a/submodules/TelegramCore/Sources/State/ManagedAccountPresence.swift b/submodules/TelegramCore/Sources/State/ManagedAccountPresence.swift
+index 8c8a4fa3..7f846ffc 100644
+--- a/submodules/TelegramCore/Sources/State/ManagedAccountPresence.swift
++++ b/submodules/TelegramCore/Sources/State/ManagedAccountPresence.swift
+@@ -53,7 +53,8 @@ private final class AccountPresenceManagerImpl {
+             }, queue: self.queue)
+             self.onlineTimer = timer
+             timer.start()
+-            request = self.network.request(Api.functions.account.updateStatus(offline: .boolFalse))
++            // Kasper Ghost: пока режим включён, сообщаем серверу «не в сети»
++            request = self.network.request(Api.functions.account.updateStatus(offline: KasperSettings.ghostHideOnline ? .boolTrue : .boolFalse))
+         } else {
+             self.onlineTimer?.invalidate()
+             self.onlineTimer = nil
+diff --git a/submodules/TelegramCore/Sources/State/ManagedLocalInputActivities.swift b/submodules/TelegramCore/Sources/State/ManagedLocalInputActivities.swift
+index 7acc37a1..4b7e65f4 100644
+--- a/submodules/TelegramCore/Sources/State/ManagedLocalInputActivities.swift
++++ b/submodules/TelegramCore/Sources/State/ManagedLocalInputActivities.swift
+@@ -175,6 +175,16 @@ private func requestActivity(postbox: Postbox, network: Network, accountPeerId:
+                 }
+             }
+             
++            if KasperSettings.ghostHideTyping {
++                // Kasper Ghost: не показываем собеседникам «печатает…» (индикатор голосового чата не трогаем)
++                var isGroupCallActivity = false
++                if let activity = activity, case .speakingInGroupCall = activity {
++                    isGroupCallActivity = true
++                }
++                if !isGroupCallActivity {
++                    return .complete()
++                }
++            }
+             if let inputPeer = apiInputPeer(peer) {
+                 var flags: Int32 = 0
+                 let topMessageId = threadId.flatMap { Int32(clamping: $0) }
+diff --git a/submodules/TelegramCore/Sources/State/SynchronizePeerReadState.swift b/submodules/TelegramCore/Sources/State/SynchronizePeerReadState.swift
+index 66242579..23bb4cb0 100644
+--- a/submodules/TelegramCore/Sources/State/SynchronizePeerReadState.swift
++++ b/submodules/TelegramCore/Sources/State/SynchronizePeerReadState.swift
+@@ -227,6 +227,10 @@ private func validatePeerReadState(network: Network, postbox: Postbox, stateMana
+ }
+ 
+ private func pushPeerReadState(network: Network, postbox: Postbox, stateManager: AccountStateManager, peerId: PeerId, readState: PeerReadState) -> Signal<PeerReadState, PeerReadStateValidationError> {
++    if KasperSettings.ghostHideReadReceipts {
++        // Kasper Ghost: не сообщаем серверу о прочтении, сообщения прочитаны только локально
++        return .single(readState)
++    }
+     if peerId.namespace == Namespaces.Peer.SecretChat {
+         return inputSecretChat(postbox: postbox, peerId: peerId)
+         |> mapToSignal { inputPeer -> Signal<PeerReadState, PeerReadStateValidationError> in
+diff --git a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoScreen.swift b/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoScreen.swift
+index fd01930f..3f2cf654 100644
+--- a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoScreen.swift
++++ b/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoScreen.swift
+@@ -153,6 +153,7 @@ enum PeerInfoContextSubject {
+ }
+ 
+ enum PeerInfoSettingsSection {
++    case kasper
+     case avatar
+     case edit
+     case proxy
+diff --git a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoScreenSettingsActions.swift b/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoScreenSettingsActions.swift
+index 806e652a..a0ca35e6 100644
+--- a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoScreenSettingsActions.swift
++++ b/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoScreenSettingsActions.swift
+@@ -44,6 +44,8 @@ extension PeerInfoScreenNode {
+             }
+         }
+         switch section {
++        case .kasper:
++            push(kasperSettingsController(context: self.context))
+         case .avatar:
+             self.controller?.openAvatarForEditing()
+         case .edit:
+diff --git a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoSettingsItems.swift b/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoSettingsItems.swift
+index c5f58f4b..b073cbf4 100644
+--- a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoSettingsItems.swift
++++ b/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoSettingsItems.swift
+@@ -18,6 +18,7 @@ enum SettingsSection: Int, CaseIterable {
+     case phone
+     case accounts
+     case myProfile
++    case kasper
+     case proxy
+     case apps
+     case shortcuts
+@@ -27,6 +28,27 @@ enum SettingsSection: Int, CaseIterable {
+     case support
+ }
+ 
++// Kasper: иконка раздела — фиолетовый градиент с буквой «K»
++private let kasperSettingsIcon: UIImage? = generateImage(CGSize(width: 30.0, height: 30.0), rotatedContext: { size, context in
++    let bounds = CGRect(origin: CGPoint(), size: size)
++    context.clear(bounds)
++    context.addPath(UIBezierPath(roundedRect: bounds, cornerRadius: 8.0).cgPath)
++    context.clip()
++    let colors = [UIColor(rgb: 0x9B5CFF).cgColor, UIColor(rgb: 0x5B21B6).cgColor] as CFArray
++    var locations: [CGFloat] = [0.0, 1.0]
++    if let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors, locations: &locations) {
++        context.drawLinearGradient(gradient, start: CGPoint(x: 0.0, y: 0.0), end: CGPoint(x: size.width, y: size.height), options: CGGradientDrawingOptions())
++    }
++    UIGraphicsPushContext(context)
++    let letter = NSAttributedString(string: "K", attributes: [
++        NSAttributedString.Key.font: UIFont.systemFont(ofSize: 18.0, weight: .heavy),
++        NSAttributedString.Key.foregroundColor: UIColor.white
++    ])
++    let letterSize = letter.size()
++    letter.draw(at: CGPoint(x: (size.width - letterSize.width) / 2.0, y: (size.height - letterSize.height) / 2.0))
++    UIGraphicsPopContext()
++})
++
+ func settingsItems(data: PeerInfoScreenData?, context: AccountContext, presentationData: PresentationData, interaction: PeerInfoInteraction, isExpanded: Bool) -> [(AnyHashable, [PeerInfoScreenItem])] {
+     guard let data = data else {
+         return []
+@@ -196,6 +218,12 @@ func settingsItems(data: PeerInfoScreenData?, context: AccountContext, presentat
+         }
+     }
+     
++    let kasperNickname = KasperSettings.localNickname
++    let kasperLabel: String = kasperNickname.isEmpty ? "" : "@\(kasperNickname) · локально"
++    items[.kasper]!.append(PeerInfoScreenDisclosureItem(id: 0, label: .text(kasperLabel), text: "Kasper", icon: kasperSettingsIcon, action: {
++        interaction.openSettings(.kasper)
++    }))
++    
+     items[.shortcuts]!.append(PeerInfoScreenDisclosureItem(id: 1, text: presentationData.strings.Settings_SavedMessages, icon: PresentationResourcesSettings.savedMessages, action: {
+         interaction.openSettings(.savedMessages)
+     }))

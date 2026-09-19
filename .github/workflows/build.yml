@@ -1,0 +1,171 @@
+name: Build Kasper IPA
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - 'patches/**'
+      - '.github/workflows/**'
+
+permissions:
+  contents: write
+
+env:
+  TG_TAG: release-12.9.2        # версия официального Telegram-iOS, на которую накладывается Kasper
+  XCODE_VERSION: '26.2'         # версия Xcode из versions.json этого релиза
+  SRC_DIR: /Users/Shared/telegram-ios
+  BAZEL_USER_ROOT: /private/var/tmp/_bazel_kasper
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 360
+
+    steps:
+      - name: Check secrets
+        env:
+          API_ID: ${{ secrets.TELEGRAM_API_ID }}
+          API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
+        run: |
+          if [ -z "$API_ID" ] || [ -z "$API_HASH" ]; then
+            echo "::error::Добавьте секреты TELEGRAM_API_ID и TELEGRAM_API_HASH (Settings → Secrets and variables → Actions)"
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+
+      - name: Free disk space
+        run: |
+          df -h /
+          for app in /Applications/Xcode_*.app; do
+            case "$app" in
+              "/Applications/Xcode_${XCODE_VERSION}.app") echo "keep $app" ;;
+              *) sudo rm -rf "$app" & ;;
+            esac
+          done
+          sudo rm -rf ~/Library/Android /usr/local/share/dotnet /usr/local/lib/node_modules ~/.dotnet ~/.rustup ~/.cargo ~/hostedtoolcache/CodeQL &
+          wait
+          df -h /
+
+      - name: Select Xcode
+        run: |
+          sudo xcode-select -s "/Applications/Xcode_${XCODE_VERSION}.app/Contents/Developer"
+          xcodebuild -version
+
+      - name: Get Telegram-iOS source
+        run: |
+          sudo mkdir -p /Users/Shared
+          sudo chown "$(whoami)" /Users/Shared
+          git clone --depth 1 --branch "$TG_TAG" https://github.com/TelegramMessenger/Telegram-iOS.git "$SRC_DIR"
+          cd "$SRC_DIR"
+          git submodule update --init --recursive --depth 1 --jobs 8 || git submodule update --init --recursive --jobs 8
+          df -h /
+
+      - name: Apply Kasper patch
+        run: |
+          cd "$SRC_DIR"
+          git apply --whitespace=nowarn "$GITHUB_WORKSPACE/patches/kasper.patch"
+          git status --short
+
+      - name: Write configuration
+        env:
+          API_ID: ${{ secrets.TELEGRAM_API_ID }}
+          API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
+        run: |
+          cd "$SRC_DIR"
+          python3 - <<'PY'
+          import json, os
+          config = {
+              # bundle_id и team_id совпадают с тестовыми профилями Telegram (build-system/fake-codesigning);
+              # при установке через Sideloadly bundle id можно сменить на свой
+              "bundle_id": "ph.telegra.Telegraph",
+              "api_id": os.environ["API_ID"].strip(),
+              "api_hash": os.environ["API_HASH"].strip(),
+              "team_id": "C67CF9S4VU",
+              "app_center_id": "0",
+              "is_internal_build": "false",
+              "is_appstore_build": "false",
+              "appstore_id": "0",
+              "app_specific_url_scheme": "tg",
+              "premium_iap_product_id": "",
+              "enable_siri": False,
+              "enable_icloud": False,
+          }
+          with open("build-system/kasper-configuration.json", "w") as f:
+              json.dump(config, f, indent=2)
+          PY
+
+      - name: Restore Bazel cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/telegram-bazel-cache
+          key: bazel-${{ env.TG_TAG }}-${{ hashFiles('patches/**') }}
+          restore-keys: |
+            bazel-${{ env.TG_TAG }}-
+
+      - name: Build
+        run: |
+          set -o pipefail
+          cd "$SRC_DIR"
+          BUILD_NUMBER=$((100000 + ${{ github.run_number }}))
+          echo "BUILD_NUMBER=$BUILD_NUMBER" >> "$GITHUB_ENV"
+          python3 build-system/Make/ImportCertificates.py --path build-system/fake-codesigning/certs
+          python3 -u build-system/Make/Make.py \
+            --overrideXcodeVersion \
+            --bazelUserRoot="$BAZEL_USER_ROOT" \
+            --cacheDir="$HOME/telegram-bazel-cache" \
+            build \
+            --configurationPath=build-system/kasper-configuration.json \
+            --codesigningInformationPath=build-system/fake-codesigning \
+            --configuration=release_arm64 \
+            --buildNumber="$BUILD_NUMBER" 2>&1 | tee "$RUNNER_TEMP/build.log"
+
+      - name: Explain errors
+        if: failure()
+        run: |
+          {
+            echo "## ❌ Сборка Kasper не удалась"
+            echo "Скопируйте строки ниже и отправьте их Claude:"
+            echo '```'
+            grep -E "error:|ERROR:|fatal:" "$RUNNER_TEMP/build.log" | grep -v "^INFO" | head -60 || echo "(в логе не найдено строк с error — смотрите конец лога шага Build)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          grep -E "error:|ERROR:" "$RUNNER_TEMP/build.log" | head -60 > "$RUNNER_TEMP/errors.txt" || true
+          tail -n 300 "$RUNNER_TEMP/build.log" > "$RUNNER_TEMP/build-tail.txt" || true
+
+      - name: Upload error log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kasper-build-errors
+          path: |
+            ${{ runner.temp }}/errors.txt
+            ${{ runner.temp }}/build-tail.txt
+          if-no-files-found: ignore
+
+      - name: Save Bazel cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: ~/telegram-bazel-cache
+          key: bazel-${{ env.TG_TAG }}-${{ hashFiles('patches/**') }}-${{ github.run_id }}
+
+      - name: Collect IPA
+        run: |
+          cd "$SRC_DIR"
+          mkdir -p "$GITHUB_WORKSPACE/out"
+          IPA=$(ls bazel-out/applebin_ios-ios_arm*-opt-ST-*/bin/Telegram/Telegram.ipa 2>/dev/null | head -1)
+          if [ -z "$IPA" ]; then IPA="bazel-bin/Telegram/Telegram.ipa"; fi
+          cp "$IPA" "$GITHUB_WORKSPACE/out/Kasper.ipa"
+          ls -la "$GITHUB_WORKSPACE/out"
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: kasper-${{ env.BUILD_NUMBER }}
+          name: Kasper (сборка ${{ env.BUILD_NUMBER }})
+          body: |
+            Неподписанная сборка Kasper на основе Telegram-iOS ${{ env.TG_TAG }}.
+            Установка: скачайте Kasper.ipa и подпишите через Sideloadly/AltStore/SideStore (см. README).
+          files: out/Kasper.ipa
