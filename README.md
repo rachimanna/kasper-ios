@@ -46,8 +46,8 @@ GitHub Actions на бесплатном Mac-сервере скачивает �
 1. **Получите api_id.** Зайдите на [my.telegram.org](https://my.telegram.org) → *API development tools*,
    создайте приложение (название — Kasper, платформа — iOS). Скопируйте `api_id` и `api_hash`.
 2. **Добавьте секреты** в репозиторий: *Settings → Secrets and variables → Actions → New repository secret*:
-   - `TELEGRAM_API_ID` — число api_id
-   - `TELEGRAM_API_HASH` — строка api_hash
+   - `API_ID` — число api_id
+   - `API_HASH` — строка api_hash
 3. **Запустите сборку:** вкладка *Actions → Build Kasper IPA → Run workflow*.
    Первая сборка идёт 2–4 часа, следующие быстрее благодаря кэшу.
 4. **Скачайте IPA:** вкладка *Releases* → `Kasper.ipa`.

@@ -25,11 +25,11 @@ jobs:
     steps:
       - name: Check secrets
         env:
-          API_ID: ${{ secrets.TELEGRAM_API_ID }}
-          API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
+          API_ID: ${{ secrets.API_ID }}
+          API_HASH: ${{ secrets.API_HASH }}
         run: |
           if [ -z "$API_ID" ] || [ -z "$API_HASH" ]; then
-            echo "::error::Добавьте секреты TELEGRAM_API_ID и TELEGRAM_API_HASH (Settings → Secrets and variables → Actions)"
+            echo "::error::Добавьте секреты API_ID и API_HASH (Settings → Secrets and variables → Actions)"
             exit 1
           fi
 
@@ -70,8 +70,8 @@ jobs:
 
       - name: Write configuration
         env:
-          API_ID: ${{ secrets.TELEGRAM_API_ID }}
-          API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
+          API_ID: ${{ secrets.API_ID }}
+          API_HASH: ${{ secrets.API_HASH }}
         run: |
           cd "$SRC_DIR"
           python3 - <<'PY'
