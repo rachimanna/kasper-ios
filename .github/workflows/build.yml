@@ -52,6 +52,26 @@ jobs:
         run: |
           sudo xcode-select -s "/Applications/Xcode_${XCODE_VERSION}.app/Contents/Developer"
           xcodebuild -version
+          # dav1d собирается для устройства по своему meson-crossfile
+          # (third-party/dav1d/dav1d/package/crossfiles/arm64-iPhoneOS.meson), где путь к
+          # SDK зашит как /Applications/Xcode.app/... . build-dav1d-bazel.sh подменяет этот
+          # путь на "xcode-select -p" только для симулятора и macOS, но не для arm64.
+          # На раннере Xcode лежит в /Applications/Xcode_<версия>.app, а /Applications/Xcode.app
+          # — симлинк на версию по умолчанию, которую удаляет шаг "Free disk space".
+          # Поэтому явно наводим /Applications/Xcode.app на выбранную версию.
+          SELECTED="/Applications/Xcode_${XCODE_VERSION}.app"
+          if [ "$(readlink /Applications/Xcode.app || true)" != "$SELECTED" ]; then
+            sudo rm -rf /Applications/Xcode.app
+            sudo ln -s "$SELECTED" /Applications/Xcode.app
+          fi
+          ls -ld /Applications/Xcode.app
+          # Падаем здесь с понятной ошибкой, а не через 10 минут внутри ninja.
+          IOS_SDK="/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS.sdk"
+          if [ ! -d "$IOS_SDK" ]; then
+            echo "::error::iPhoneOS SDK не найден: $IOS_SDK"
+            exit 1
+          fi
+          echo "iPhoneOS SDK: $IOS_SDK"
 
       - name: Get Telegram-iOS source
         run: |
