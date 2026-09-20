@@ -263,10 +263,10 @@ index 2b2977e..6a0df90 100644
      imageView.image = image;
 diff --git a/submodules/SettingsUI/Sources/Kasper/KasperSettingsController.swift b/submodules/SettingsUI/Sources/Kasper/KasperSettingsController.swift
 new file mode 100644
-index 0000000..9fafed9
+index 0000000..1eb4b3d
 --- /dev/null
 +++ b/submodules/SettingsUI/Sources/Kasper/KasperSettingsController.swift
-@@ -0,0 +1,383 @@
+@@ -0,0 +1,406 @@
 +import Foundation
 +import UIKit
 +import Display
@@ -288,6 +288,7 @@ index 0000000..9fafed9
 +    var keepDeletedInGroups: Bool
 +    var deletedCaught: Int
 +    var voice: KasperVoice
++    var voiceInCalls: Bool
 +    var nickname: String
 +
 +    var ghostEnabled: Bool {
@@ -304,6 +305,7 @@ index 0000000..9fafed9
 +            keepDeletedInGroups: KasperSettings.keepDeletedInGroups,
 +            deletedCaught: KasperSettings.deletedCaught,
 +            voice: KasperSettings.voice,
++            voiceInCalls: KasperSettings.voiceInCalls,
 +            nickname: KasperSettings.localNickname
 +        )
 +    }
@@ -320,6 +322,7 @@ index 0000000..9fafed9
 +    let updateKeepDeleted: (Bool) -> Void
 +    let updateKeepDeletedInGroups: (Bool) -> Void
 +    let updateVoice: (KasperVoice) -> Void
++    let updateVoiceInCalls: (Bool) -> Void
 +    let updateNickname: (String) -> Void
 +
 +    init(
@@ -331,6 +334,7 @@ index 0000000..9fafed9
 +        updateKeepDeleted: @escaping (Bool) -> Void,
 +        updateKeepDeletedInGroups: @escaping (Bool) -> Void,
 +        updateVoice: @escaping (KasperVoice) -> Void,
++        updateVoiceInCalls: @escaping (Bool) -> Void,
 +        updateNickname: @escaping (String) -> Void
 +    ) {
 +        self.updateGhost = updateGhost
@@ -341,6 +345,7 @@ index 0000000..9fafed9
 +        self.updateKeepDeleted = updateKeepDeleted
 +        self.updateKeepDeletedInGroups = updateKeepDeletedInGroups
 +        self.updateVoice = updateVoice
++        self.updateVoiceInCalls = updateVoiceInCalls
 +        self.updateNickname = updateNickname
 +    }
 +}
@@ -375,6 +380,7 @@ index 0000000..9fafed9
 +
 +    case voiceHeader
 +    case voiceItem(KasperVoice, Bool)
++    case voiceCalls(Bool)
 +    case voiceFooter
 +
 +    case nicknameHeader
@@ -391,7 +397,7 @@ index 0000000..9fafed9
 +            return KasperSettingsSection.ghostDetails.rawValue
 +        case .deletedHeader, .deletedKeep, .deletedGroups, .deletedCount, .deletedFooter:
 +            return KasperSettingsSection.deleted.rawValue
-+        case .voiceHeader, .voiceItem, .voiceFooter:
++        case .voiceHeader, .voiceItem, .voiceCalls, .voiceFooter:
 +            return KasperSettingsSection.voice.rawValue
 +        case .nicknameHeader, .nicknameInput, .nicknameFooter:
 +            return KasperSettingsSection.nickname.rawValue
@@ -432,6 +438,8 @@ index 0000000..9fafed9
 +            return 20
 +        case let .voiceItem(voice, _):
 +            return 21 + Int32(KasperVoice.allCases.firstIndex(of: voice) ?? 0)
++        case .voiceCalls:
++            return 28
 +        case .voiceFooter:
 +            return 29
 +        case .nicknameHeader:
@@ -498,8 +506,12 @@ index 0000000..9fafed9
 +            return ItemListCheckboxItem(presentationData: presentationData, systemStyle: .glass, title: "\(voice.emoji)  \(voice.title)", style: .right, checked: selected, zeroSeparatorInsets: false, sectionId: self.section, action: {
 +                arguments.updateVoice(voice)
 +            })
++        case let .voiceCalls(value):
++            return ItemListSwitchItem(presentationData: presentationData, systemStyle: .glass, title: "Менять голос и в звонках", value: value, sectionId: self.section, style: .blocks, updated: { value in
++                arguments.updateVoiceInCalls(value)
++            })
 +        case .voiceFooter:
-+            return ItemListTextItem(presentationData: presentationData, text: .plain("Голос меняется прямо при записи голосового сообщения: собеседник получит уже изменённую запись. Работает в голосовых сообщениях. В звонках и видеосообщениях («кружках») голос остаётся обычным."), sectionId: self.section)
++            return ItemListTextItem(presentationData: presentationData, text: .plain("Голос меняется прямо во время записи: собеседник получает уже изменённый звук. Работает в голосовых сообщениях, а при включённом переключателе — и в звонках, включая видеозвонки и голосовые чаты. В видеосообщениях («кружках») голос остаётся обычным.\n\nЕсли в звонке появятся помехи, эхо или собеседник перестанет вас понимать, выключите переключатель — звонки сразу вернутся к обычному звуку."), sectionId: self.section)
 +        case .nicknameHeader:
 +            return ItemListSectionHeaderItem(presentationData: presentationData, text: "🏷 ЛОКАЛЬНЫЙ НИК", sectionId: self.section)
 +        case let .nicknameInput(value):
@@ -539,6 +551,9 @@ index 0000000..9fafed9
 +    entries.append(.voiceHeader)
 +    for voice in KasperVoice.allCases {
 +        entries.append(.voiceItem(voice, state.voice == voice))
++    }
++    if state.voice != .none {
++        entries.append(.voiceCalls(state.voiceInCalls))
 +    }
 +    entries.append(.voiceFooter)
 +
@@ -629,6 +644,14 @@ index 0000000..9fafed9
 +                return state
 +            }
 +        },
++        updateVoiceInCalls: { value in
++            KasperSettings.voiceInCalls = value
++            updateState { state in
++                var state = state
++                state.voiceInCalls = value
++                return state
++            }
++        },
 +        updateNickname: { value in
 +            let cleaned = value.trimmingCharacters(in: .whitespacesAndNewlines)
 +            KasperSettings.localNickname = cleaned
@@ -652,10 +675,10 @@ index 0000000..9fafed9
 +}
 diff --git a/submodules/TelegramCore/Sources/Kasper/KasperSettings.swift b/submodules/TelegramCore/Sources/Kasper/KasperSettings.swift
 new file mode 100644
-index 0000000..5b071e5
+index 0000000..6d1166c
 --- /dev/null
 +++ b/submodules/TelegramCore/Sources/Kasper/KasperSettings.swift
-@@ -0,0 +1,302 @@
+@@ -0,0 +1,309 @@
 +import Foundation
 +import Postbox
 +import SwiftSignalKit
@@ -678,6 +701,7 @@ index 0000000..5b071e5
 +        static let deletedCaught = "kasper.deleted.caught"
 +        static let localNickname = "kasper.localNickname"
 +        static let voice = "kasper.voice"
++        static let voiceInCalls = "kasper.voice.calls"
 +    }
 +
 +    /// Пометка, которая дописывается к сохранённому удалённому сообщению.
@@ -753,6 +777,12 @@ index 0000000..5b071e5
 +    public static var voice: KasperVoice {
 +        get { return KasperVoice(rawValue: defaults.string(forKey: Key.voice) ?? "") ?? .none }
 +        set { defaults.set(newValue.rawValue, forKey: Key.voice) }
++    }
++
++    /// Менять голос и в звонках (обрабатывается звук с микрофона во время разговора).
++    public static var voiceInCalls: Bool {
++        get { return flag(Key.voiceInCalls, default: false) }
++        set { defaults.set(newValue, forKey: Key.voiceInCalls) }
 +    }
 +
 +    /// Локальный ник: виден только в Kasper и не меняет настоящий username.
@@ -1379,3 +1409,312 @@ index feca4e4..45d8846 100644
                  self.processWaveformPreview(samples: currentEncoderPacket.assumingMemoryBound(to: Int16.self), count: currentEncoderPacketSize / 2)
                  
                  self.oggWriter.writeFrame(currentEncoderPacket.assumingMemoryBound(to: UInt8.self), frameByteCount: UInt(currentEncoderPacketSize))
+diff --git a/submodules/TgVoipWebrtc/Sources/KasperCallVoice.h b/submodules/TgVoipWebrtc/Sources/KasperCallVoice.h
+new file mode 100644
+index 0000000..518d0be
+--- /dev/null
++++ b/submodules/TgVoipWebrtc/Sources/KasperCallVoice.h
+@@ -0,0 +1,245 @@
++#ifndef KasperCallVoice_h
++#define KasperCallVoice_h
++
++#import <Foundation/Foundation.h>
++
++#include <algorithm>
++#include <cmath>
++#include <cstdint>
++#include <cstring>
++
++// Изменение голоса Kasper в звонках.
++//
++// Обрабатывает звук с микрофона прямо перед тем, как он попадёт в движок звонка.
++// Настройки берутся из тех же UserDefaults, что и остальной Kasper:
++//   kasper.voice       — выбранный голос ("female", "male", "child", "robot", "pixel", "echo")
++//   kasper.voice.calls — включено ли изменение голоса в звонках
++//
++// Работает только с моно-звуком 16 бит (так звонки и захватывают микрофон).
++// Если формат другой или голос выключен, звук идёт без изменений.
++namespace KasperCall {
++
++enum class Voice {
++    None,
++    Female,
++    Male,
++    Child,
++    Robot,
++    Pixel,
++    Echo
++};
++
++inline Voice parseVoice(NSString *value) {
++    if (value == nil) {
++        return Voice::None;
++    } else if ([value isEqualToString:@"female"]) {
++        return Voice::Female;
++    } else if ([value isEqualToString:@"male"]) {
++        return Voice::Male;
++    } else if ([value isEqualToString:@"child"]) {
++        return Voice::Child;
++    } else if ([value isEqualToString:@"robot"]) {
++        return Voice::Robot;
++    } else if ([value isEqualToString:@"pixel"]) {
++        return Voice::Pixel;
++    } else if ([value isEqualToString:@"echo"]) {
++        return Voice::Echo;
++    }
++    return Voice::None;
++}
++
++inline double pitchRatio(Voice voice) {
++    switch (voice) {
++        case Voice::Female:
++            return 1.34;
++        case Voice::Male:
++            return 0.76;
++        case Voice::Child:
++            return 1.6;
++        case Voice::Robot:
++            return 0.85;
++        default:
++            return 1.0;
++    }
++}
++
++inline float outputGain(Voice voice) {
++    switch (voice) {
++        case Voice::Male:
++            return 1.08f;
++        case Voice::Robot:
++            return 0.9f;
++        case Voice::Pixel:
++            return 1.1f;
++        default:
++            return 1.0f;
++    }
++}
++
++class Processor {
++public:
++    Processor() {
++        memset(_buffer, 0, sizeof(_buffer));
++        memset(_echoBuffer, 0, sizeof(_echoBuffer));
++        memset(_output, 0, sizeof(_output));
++    }
++
++    /// Возвращает указатель на обработанный звук либо исходный, если менять ничего не нужно.
++    const void *processIfNeeded(const void *audioSamples, size_t sampleCount, size_t bytesPerSample, size_t channels, uint32_t sampleRate) {
++        refreshSettings();
++        if (_voice == Voice::None || audioSamples == nullptr) {
++            return audioSamples;
++        }
++        if (bytesPerSample != 2 || channels != 1 || sampleCount == 0 || sampleCount > kMaxSamples || sampleRate < 8000) {
++            // непонятный формат — не трогаем звук, чтобы не сломать звонок
++            return audioSamples;
++        }
++
++        const int16_t *input = reinterpret_cast<const int16_t *>(audioSamples);
++        const double window = std::max(64.0, (double)sampleRate / 25.0);
++        const int holdLimit = std::max(1, (int)(sampleRate / 5300));
++        const size_t echoDelay = std::min((size_t)(sampleRate * 0.28), (size_t)(kEchoSize - 1));
++
++        for (size_t i = 0; i < sampleCount; i++) {
++            float value = (float)input[i] / 32768.0f;
++
++            switch (_voice) {
++                case Voice::Female:
++                case Voice::Male:
++                case Voice::Child:
++                    value = pitchShifted(value, window);
++                    break;
++                case Voice::Robot:
++                    value = robot(pitchShifted(value, window), sampleRate);
++                    break;
++                case Voice::Pixel:
++                    value = pixel(value, holdLimit);
++                    break;
++                case Voice::Echo:
++                    value = echo(value, echoDelay);
++                    break;
++                case Voice::None:
++                    break;
++            }
++
++            value *= outputGain(_voice);
++            if (value > 1.0f) {
++                value = 1.0f;
++            } else if (value < -1.0f) {
++                value = -1.0f;
++            }
++            _output[i] = (int16_t)(value * 32767.0f);
++        }
++        return _output;
++    }
++
++private:
++    static const size_t kBufferSize = 16384;
++    static const size_t kEchoSize = 24000;
++    static const size_t kMaxSamples = 8192;
++
++    Voice _voice = Voice::None;
++    double _ratio = 1.0;
++    double _lastSettingsCheck = 0.0;
++
++    float _buffer[kBufferSize];
++    size_t _writePosition = 0;
++    double _readPhase = 0.0;
++
++    double _modulatorPhase = 0.0;
++
++    float _holdValue = 0.0f;
++    int _holdCounter = 0;
++
++    float _echoBuffer[kEchoSize];
++    size_t _echoPosition = 0;
++
++    int16_t _output[kMaxSamples];
++
++    void refreshSettings() {
++        double now = CFAbsoluteTimeGetCurrent();
++        if (now - _lastSettingsCheck < 0.5) {
++            return;
++        }
++        _lastSettingsCheck = now;
++        NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
++        Voice voice = Voice::None;
++        if ([defaults boolForKey:@"kasper.voice.calls"]) {
++            voice = parseVoice([defaults stringForKey:@"kasper.voice"]);
++        }
++        if (voice != _voice) {
++            _voice = voice;
++            _ratio = pitchRatio(voice);
++            _readPhase = 0.0;
++            _writePosition = 0;
++            _echoPosition = 0;
++            _holdCounter = 0;
++            memset(_buffer, 0, sizeof(_buffer));
++            memset(_echoBuffer, 0, sizeof(_echoBuffer));
++        }
++    }
++
++    float sampleAt(double delay) {
++        double index = (double)_writePosition - delay;
++        while (index < 0.0) {
++            index += (double)kBufferSize;
++        }
++        while (index >= (double)kBufferSize) {
++            index -= (double)kBufferSize;
++        }
++        size_t i0 = (size_t)index;
++        size_t i1 = (i0 + 1) % kBufferSize;
++        float fraction = (float)(index - (double)i0);
++        return _buffer[i0] * (1.0f - fraction) + _buffer[i1] * fraction;
++    }
++
++    float pitchShifted(float input, double window) {
++        _buffer[_writePosition] = input;
++        _writePosition = (_writePosition + 1) % kBufferSize;
++        if (_ratio == 1.0) {
++            return input;
++        }
++        _readPhase -= _ratio - 1.0;
++        if (_readPhase >= window) {
++            _readPhase -= window;
++        } else if (_readPhase < 0.0) {
++            _readPhase += window;
++        }
++        double phase1 = _readPhase;
++        double phase2 = phase1 < window / 2.0 ? phase1 + window / 2.0 : phase1 - window / 2.0;
++        float gain1 = (float)sin(M_PI * phase1 / window);
++        float gain2 = (float)sin(M_PI * phase2 / window);
++        return sampleAt(phase1) * gain1 + sampleAt(phase2) * gain2;
++    }
++
++    float robot(float input, uint32_t sampleRate) {
++        _modulatorPhase += 2.0 * M_PI * 95.0 / (double)sampleRate;
++        if (_modulatorPhase > 2.0 * M_PI) {
++            _modulatorPhase -= 2.0 * M_PI;
++        }
++        return input * (float)(0.45 + 0.55 * sin(_modulatorPhase)) * 1.4f;
++    }
++
++    float pixel(float input, int holdLimit) {
++        if (_holdCounter <= 0) {
++            const float levels = 14.0f;
++            _holdValue = roundf(input * levels) / levels;
++            _holdCounter = holdLimit;
++        } else {
++            _holdCounter -= 1;
++        }
++        return _holdValue;
++    }
++
++    float echo(float input, size_t delaySamples) {
++        size_t readPosition = (_echoPosition + kEchoSize - delaySamples) % kEchoSize;
++        float delayed = _echoBuffer[readPosition];
++        _echoBuffer[_echoPosition] = input + delayed * 0.45f;
++        _echoPosition = (_echoPosition + 1) % kEchoSize;
++        return input * 0.75f + delayed * 0.55f;
++    }
++};
++
++}  // namespace KasperCall
++
++#endif /* KasperCallVoice_h */
+diff --git a/submodules/TgVoipWebrtc/Sources/OngoingCallThreadLocalContext.mm b/submodules/TgVoipWebrtc/Sources/OngoingCallThreadLocalContext.mm
+index f70dfc6..7539103 100644
+--- a/submodules/TgVoipWebrtc/Sources/OngoingCallThreadLocalContext.mm
++++ b/submodules/TgVoipWebrtc/Sources/OngoingCallThreadLocalContext.mm
+@@ -1,4 +1,5 @@
+ #import <TgVoipWebrtc/OngoingCallThreadLocalContext.h>
++#import "KasperCallVoice.h"
+ #include <cstdint>
+ 
+ #import "MediaUtils.h"
+@@ -137,6 +138,7 @@ public:
+ 
+ }
+ 
++// Kasper: изменение голоса в звонках
+ class WrappedAudioDeviceModuleIOS : public tgcalls::DefaultWrappedAudioDeviceModule, public webrtc::AudioTransport {
+ public:
+     WrappedAudioDeviceModuleIOS(webrtc::scoped_refptr<webrtc::AudioDeviceModule> impl) :
+@@ -147,6 +149,9 @@ public:
+         ActualStop();
+     }
+ 
++    // Kasper: обработчик голоса для исходящего звука (микрофон)
++    KasperCall::Processor _kasperVoiceProcessor;
++
+     virtual int32_t ActiveAudioLayer(AudioLayer *audioLayer) const override {
+         return 0;
+     }
+@@ -487,11 +492,13 @@ public:
+         bool keyPressed,
+         uint32_t& newMicLevel
+     ) override {
++        // Kasper: меняем голос до того, как звук уйдёт в звонок
++        const void *kasperSamples = _kasperVoiceProcessor.processIfNeeded(audioSamples, nSamples, nBytesPerSample, nChannels, samplesPerSec);
+         _mutex.Lock();
+         if (!_audioTransports.empty()) {
+             for (size_t i = 0; i < _audioTransports.size(); i++) {
+                 _audioTransports[i].first->RecordedDataIsAvailable(
+-                    audioSamples,
++                    kasperSamples,
+                     nSamples,
+                     nBytesPerSample,
+                     nChannels,
+@@ -521,11 +528,13 @@ public:
+         uint32_t& newMicLevel,
+         absl::optional<int64_t> estimatedCaptureTimeNS
+     ) override {
++        // Kasper: меняем голос до того, как звук уйдёт в звонок
++        const void *kasperSamples = _kasperVoiceProcessor.processIfNeeded(audioSamples, nSamples, nBytesPerSample, nChannels, samplesPerSec);
+         _mutex.Lock();
+         if (!_audioTransports.empty()) {
+             for (size_t i = 0; i < _audioTransports.size(); i++) {
+                 _audioTransports[i].first->RecordedDataIsAvailable(
+-                    audioSamples,
++                    kasperSamples,
+                     nSamples,
+                     nBytesPerSample,
+                     nChannels,
