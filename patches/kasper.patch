@@ -263,10 +263,10 @@ index 2b2977e..6a0df90 100644
      imageView.image = image;
 diff --git a/submodules/SettingsUI/Sources/Kasper/KasperSettingsController.swift b/submodules/SettingsUI/Sources/Kasper/KasperSettingsController.swift
 new file mode 100644
-index 0000000..bc19301
+index 0000000..9fafed9
 --- /dev/null
 +++ b/submodules/SettingsUI/Sources/Kasper/KasperSettingsController.swift
-@@ -0,0 +1,343 @@
+@@ -0,0 +1,383 @@
 +import Foundation
 +import UIKit
 +import Display
@@ -287,6 +287,7 @@ index 0000000..bc19301
 +    var keepDeleted: Bool
 +    var keepDeletedInGroups: Bool
 +    var deletedCaught: Int
++    var voice: KasperVoice
 +    var nickname: String
 +
 +    var ghostEnabled: Bool {
@@ -302,6 +303,7 @@ index 0000000..bc19301
 +            keepDeleted: KasperSettings.keepDeletedMessages,
 +            keepDeletedInGroups: KasperSettings.keepDeletedInGroups,
 +            deletedCaught: KasperSettings.deletedCaught,
++            voice: KasperSettings.voice,
 +            nickname: KasperSettings.localNickname
 +        )
 +    }
@@ -317,6 +319,7 @@ index 0000000..bc19301
 +    let updateHideListened: (Bool) -> Void
 +    let updateKeepDeleted: (Bool) -> Void
 +    let updateKeepDeletedInGroups: (Bool) -> Void
++    let updateVoice: (KasperVoice) -> Void
 +    let updateNickname: (String) -> Void
 +
 +    init(
@@ -327,6 +330,7 @@ index 0000000..bc19301
 +        updateHideListened: @escaping (Bool) -> Void,
 +        updateKeepDeleted: @escaping (Bool) -> Void,
 +        updateKeepDeletedInGroups: @escaping (Bool) -> Void,
++        updateVoice: @escaping (KasperVoice) -> Void,
 +        updateNickname: @escaping (String) -> Void
 +    ) {
 +        self.updateGhost = updateGhost
@@ -336,6 +340,7 @@ index 0000000..bc19301
 +        self.updateHideListened = updateHideListened
 +        self.updateKeepDeleted = updateKeepDeleted
 +        self.updateKeepDeletedInGroups = updateKeepDeletedInGroups
++        self.updateVoice = updateVoice
 +        self.updateNickname = updateNickname
 +    }
 +}
@@ -346,6 +351,7 @@ index 0000000..bc19301
 +    case ghost
 +    case ghostDetails
 +    case deleted
++    case voice
 +    case nickname
 +    case about
 +}
@@ -367,6 +373,10 @@ index 0000000..bc19301
 +    case deletedCount(Int)
 +    case deletedFooter
 +
++    case voiceHeader
++    case voiceItem(KasperVoice, Bool)
++    case voiceFooter
++
 +    case nicknameHeader
 +    case nicknameInput(String)
 +    case nicknameFooter
@@ -381,6 +391,8 @@ index 0000000..bc19301
 +            return KasperSettingsSection.ghostDetails.rawValue
 +        case .deletedHeader, .deletedKeep, .deletedGroups, .deletedCount, .deletedFooter:
 +            return KasperSettingsSection.deleted.rawValue
++        case .voiceHeader, .voiceItem, .voiceFooter:
++            return KasperSettingsSection.voice.rawValue
 +        case .nicknameHeader, .nicknameInput, .nicknameFooter:
 +            return KasperSettingsSection.nickname.rawValue
 +        case .about:
@@ -416,6 +428,12 @@ index 0000000..bc19301
 +            return 13
 +        case .deletedFooter:
 +            return 14
++        case .voiceHeader:
++            return 20
++        case let .voiceItem(voice, _):
++            return 21 + Int32(KasperVoice.allCases.firstIndex(of: voice) ?? 0)
++        case .voiceFooter:
++            return 29
 +        case .nicknameHeader:
 +            return 30
 +        case .nicknameInput:
@@ -474,6 +492,14 @@ index 0000000..bc19301
 +            return ItemListDisclosureItem(presentationData: presentationData, systemStyle: .glass, title: "Поймано удалённых", label: "\(value)", sectionId: self.section, style: .blocks, disclosureStyle: .none, action: nil)
 +        case .deletedFooter:
 +            return ItemListTextItem(presentationData: presentationData, text: .plain("Если собеседник удалит сообщение, оно останется в чате с пометкой «🗑 Удалено» — вместе с текстом, фото и файлами, которые уже были загружены на телефон. То, что вы удаляете сами, исчезает как обычно."), sectionId: self.section)
++        case .voiceHeader:
++            return ItemListSectionHeaderItem(presentationData: presentationData, text: "🎤 ГОЛОС В ГОЛОСОВЫХ", sectionId: self.section)
++        case let .voiceItem(voice, selected):
++            return ItemListCheckboxItem(presentationData: presentationData, systemStyle: .glass, title: "\(voice.emoji)  \(voice.title)", style: .right, checked: selected, zeroSeparatorInsets: false, sectionId: self.section, action: {
++                arguments.updateVoice(voice)
++            })
++        case .voiceFooter:
++            return ItemListTextItem(presentationData: presentationData, text: .plain("Голос меняется прямо при записи голосового сообщения: собеседник получит уже изменённую запись. Работает в голосовых сообщениях. В звонках и видеосообщениях («кружках») голос остаётся обычным."), sectionId: self.section)
 +        case .nicknameHeader:
 +            return ItemListSectionHeaderItem(presentationData: presentationData, text: "🏷 ЛОКАЛЬНЫЙ НИК", sectionId: self.section)
 +        case let .nicknameInput(value):
@@ -509,6 +535,12 @@ index 0000000..bc19301
 +    }
 +    entries.append(.deletedCount(state.deletedCaught))
 +    entries.append(.deletedFooter)
++
++    entries.append(.voiceHeader)
++    for voice in KasperVoice.allCases {
++        entries.append(.voiceItem(voice, state.voice == voice))
++    }
++    entries.append(.voiceFooter)
 +
 +    entries.append(.nicknameHeader)
 +    entries.append(.nicknameInput(state.nickname))
@@ -589,6 +621,14 @@ index 0000000..bc19301
 +                return state
 +            }
 +        },
++        updateVoice: { value in
++            KasperSettings.voice = value
++            updateState { state in
++                var state = state
++                state.voice = value
++                return state
++            }
++        },
 +        updateNickname: { value in
 +            let cleaned = value.trimmingCharacters(in: .whitespacesAndNewlines)
 +            KasperSettings.localNickname = cleaned
@@ -612,10 +652,10 @@ index 0000000..bc19301
 +}
 diff --git a/submodules/TelegramCore/Sources/Kasper/KasperSettings.swift b/submodules/TelegramCore/Sources/Kasper/KasperSettings.swift
 new file mode 100644
-index 0000000..dc4bc50
+index 0000000..5b071e5
 --- /dev/null
 +++ b/submodules/TelegramCore/Sources/Kasper/KasperSettings.swift
-@@ -0,0 +1,213 @@
+@@ -0,0 +1,302 @@
 +import Foundation
 +import Postbox
 +import SwiftSignalKit
@@ -637,6 +677,7 @@ index 0000000..dc4bc50
 +        static let keepDeletedInGroups = "kasper.deleted.groups"
 +        static let deletedCaught = "kasper.deleted.caught"
 +        static let localNickname = "kasper.localNickname"
++        static let voice = "kasper.voice"
 +    }
 +
 +    /// Пометка, которая дописывается к сохранённому удалённому сообщению.
@@ -704,6 +745,14 @@ index 0000000..dc4bc50
 +    public static var deletedCaught: Int {
 +        get { return defaults.integer(forKey: Key.deletedCaught) }
 +        set { defaults.set(max(0, newValue), forKey: Key.deletedCaught) }
++    }
++
++    // MARK: - Голос
++
++    /// Выбранный эффект для голосовых сообщений.
++    public static var voice: KasperVoice {
++        get { return KasperVoice(rawValue: defaults.string(forKey: Key.voice) ?? "") ?? .none }
++        set { defaults.set(newValue.rawValue, forKey: Key.voice) }
 +    }
 +
 +    /// Локальный ник: виден только в Kasper и не меняет настоящий username.
@@ -828,6 +877,86 @@ index 0000000..dc4bc50
 +        KasperSettings.deletedCaught += caught
 +    }
 +    return remaining
++}
++
++/// Эффекты голоса для голосовых сообщений Kasper. Обработка идёт на телефоне,
++/// в Telegram уходит уже изменённая запись.
++public enum KasperVoice: String, CaseIterable {
++    case none
++    case female
++    case male
++    case child
++    case robot
++    case pixel
++    case echo
++
++    public var title: String {
++        switch self {
++        case .none:
++            return "Обычный голос"
++        case .female:
++            return "Женский"
++        case .male:
++            return "Мужской"
++        case .child:
++            return "Детский"
++        case .robot:
++            return "Робот"
++        case .pixel:
++            return "Пиксель"
++        case .echo:
++            return "Эхо"
++        }
++    }
++
++    public var emoji: String {
++        switch self {
++        case .none:
++            return "🙂"
++        case .female:
++            return "👩"
++        case .male:
++            return "👨"
++        case .child:
++            return "🧒"
++        case .robot:
++            return "🤖"
++        case .pixel:
++            return "👾"
++        case .echo:
++            return "🌀"
++        }
++    }
++
++    /// Во сколько раз меняется высота голоса (1.0 — не меняется).
++    public var pitchRatio: Double {
++        switch self {
++        case .none, .pixel, .echo:
++            return 1.0
++        case .female:
++            return 1.34
++        case .male:
++            return 0.76
++        case .child:
++            return 1.6
++        case .robot:
++            return 0.85
++        }
++    }
++
++    /// Поправка громкости после обработки.
++    public var outputGain: Float {
++        switch self {
++        case .none, .female, .child, .echo:
++            return 1.0
++        case .male:
++            return 1.08
++        case .robot:
++            return 0.9
++        case .pixel:
++            return 1.1
++        }
++    }
 +}
 diff --git a/submodules/TelegramCore/Sources/State/AccountStateManagementUtils.swift b/submodules/TelegramCore/Sources/State/AccountStateManagementUtils.swift
 index 58db6c7..9ea5987 100644
@@ -1080,3 +1209,173 @@ index c5f58f4..b073cbf 100644
      items[.shortcuts]!.append(PeerInfoScreenDisclosureItem(id: 1, text: presentationData.strings.Settings_SavedMessages, icon: PresentationResourcesSettings.savedMessages, action: {
          interaction.openSettings(.savedMessages)
      }))
+diff --git a/submodules/TelegramUI/Sources/Kasper/KasperVoiceEffect.swift b/submodules/TelegramUI/Sources/Kasper/KasperVoiceEffect.swift
+new file mode 100644
+index 0000000..f09c4a5
+--- /dev/null
++++ b/submodules/TelegramUI/Sources/Kasper/KasperVoiceEffect.swift
+@@ -0,0 +1,139 @@
++import Foundation
++import TelegramCore
++
++/// Изменение голоса в голосовых сообщениях Kasper.
++///
++/// Обрабатывает поток записи (16 кГц, моно, Int16) прямо перед кодированием в opus,
++/// поэтому работает без задержек и не требует сторонних библиотек.
++/// Всё происходит на телефоне: наружу уходит уже изменённый голос.
++public final class KasperVoiceProcessor {
++    private let voice: KasperVoice
++
++    // Сдвиг высоты голоса: кольцевой буфер с двумя считывающими головками.
++    private static let bufferSize = 8192
++    private static let windowSize: Double = 640.0
++    private var buffer = [Float](repeating: 0.0, count: KasperVoiceProcessor.bufferSize)
++    private var writePosition: Int = 0
++    private var readPhase: Double = 0.0
++    private let ratio: Double
++
++    // Робот: кольцевая модуляция.
++    private var modulatorPhase: Double = 0.0
++
++    // Пиксель: огрубление сигнала.
++    private var holdValue: Float = 0.0
++    private var holdCounter: Int = 0
++
++    // Эхо.
++    private var echoBuffer: [Float]
++    private var echoPosition: Int = 0
++
++    public init?(voice: KasperVoice) {
++        guard voice != .none else {
++            return nil
++        }
++        self.voice = voice
++        self.ratio = voice.pitchRatio
++        self.echoBuffer = [Float](repeating: 0.0, count: 16000 * 3 / 10)
++    }
++
++    private func sample(at delay: Double) -> Float {
++        let position = Double(self.writePosition) - delay
++        var index = position
++        let size = Double(KasperVoiceProcessor.bufferSize)
++        while index < 0.0 {
++            index += size
++        }
++        while index >= size {
++            index -= size
++        }
++        let i0 = Int(index)
++        let i1 = (i0 + 1) % KasperVoiceProcessor.bufferSize
++        let fraction = Float(index - Double(i0))
++        return self.buffer[i0] * (1.0 - fraction) + self.buffer[i1] * fraction
++    }
++
++    /// Сдвиг высоты без изменения длительности: две головки чтения с плавным перекрытием.
++    private func pitchShifted(_ input: Float) -> Float {
++        self.buffer[self.writePosition] = input
++        self.writePosition = (self.writePosition + 1) % KasperVoiceProcessor.bufferSize
++        if self.ratio == 1.0 {
++            // высота не меняется — пропускаем звук как есть, без окрашивания
++            return input
++        }
++
++        let window = KasperVoiceProcessor.windowSize
++        self.readPhase -= self.ratio - 1.0
++        if self.readPhase >= window {
++            self.readPhase -= window
++        } else if self.readPhase < 0.0 {
++            self.readPhase += window
++        }
++
++        let phase1 = self.readPhase
++        let phase2 = phase1 < window / 2.0 ? phase1 + window / 2.0 : phase1 - window / 2.0
++        let gain1 = Float(sin(Double.pi * phase1 / window))
++        let gain2 = Float(sin(Double.pi * phase2 / window))
++        return self.sample(at: phase1) * gain1 + self.sample(at: phase2) * gain2
++    }
++
++    private func robot(_ input: Float) -> Float {
++        self.modulatorPhase += 2.0 * Double.pi * 95.0 / 16000.0
++        if self.modulatorPhase > 2.0 * Double.pi {
++            self.modulatorPhase -= 2.0 * Double.pi
++        }
++        let modulated = input * Float(0.45 + 0.55 * sin(self.modulatorPhase))
++        return modulated * 1.4
++    }
++
++    private func pixel(_ input: Float) -> Float {
++        // частота дискретизации ниже + грубые уровни громкости = звук старой приставки
++        if self.holdCounter == 0 {
++            let levels: Float = 14.0
++            self.holdValue = (input * levels).rounded() / levels
++            self.holdCounter = 3
++        } else {
++            self.holdCounter -= 1
++        }
++        return self.holdValue
++    }
++
++    private func echo(_ input: Float) -> Float {
++        let delayed = self.echoBuffer[self.echoPosition]
++        let value = input + delayed * 0.45
++        self.echoBuffer[self.echoPosition] = value
++        self.echoPosition = (self.echoPosition + 1) % self.echoBuffer.count
++        return input * 0.75 + delayed * 0.55
++    }
++
++    /// Обрабатывает пачку сэмплов на месте.
++    public func process(_ samples: UnsafeMutablePointer<Int16>, count: Int) {
++        guard count > 0 else {
++            return
++        }
++        for i in 0 ..< count {
++            var value = Float(samples[i]) / 32768.0
++
++            switch self.voice {
++            case .none:
++                break
++            case .female, .male, .child:
++                value = self.pitchShifted(value)
++            case .robot:
++                value = self.robot(self.pitchShifted(value))
++            case .pixel:
++                value = self.pixel(self.pitchShifted(value))
++            case .echo:
++                value = self.echo(value)
++            }
++
++            value *= self.voice.outputGain
++            if value > 1.0 {
++                value = 1.0
++            } else if value < -1.0 {
++                value = -1.0
++            }
++            samples[i] = Int16(value * 32767.0)
++        }
++    }
++}
+diff --git a/submodules/TelegramUI/Sources/ManagedAudioRecorder.swift b/submodules/TelegramUI/Sources/ManagedAudioRecorder.swift
+index feca4e4..45d8846 100644
+--- a/submodules/TelegramUI/Sources/ManagedAudioRecorder.swift
++++ b/submodules/TelegramUI/Sources/ManagedAudioRecorder.swift
+@@ -162,6 +162,8 @@ final class ManagedAudioRecorderContext {
+     private var oggWriter: TGOggOpusWriter
+     private var dataItem: TGDataItem
+     private var audioBuffer = Data()
++    // Kasper: изменение голоса выбирается на момент начала записи
++    private let kasperVoiceProcessor = KasperVoiceProcessor(voice: KasperSettings.voice)
+     
+     private let audioUnit = Atomic<AudioUnit?>(value: nil)
+     
+@@ -621,6 +623,11 @@ final class ManagedAudioRecorderContext {
+                 self.audioBuffer.append(currentEncoderPacket.assumingMemoryBound(to: UInt8.self), count: currentEncoderPacketSize)
+                 break
+             } else {
++                if let kasperVoiceProcessor = self.kasperVoiceProcessor {
++                    // Kasper: меняем голос до кодирования, поэтому и волна, и отправленное аудио совпадают
++                    kasperVoiceProcessor.process(currentEncoderPacket.assumingMemoryBound(to: Int16.self), count: currentEncoderPacketSize / 2)
++                }
++                
+                 self.processWaveformPreview(samples: currentEncoderPacket.assumingMemoryBound(to: Int16.self), count: currentEncoderPacketSize / 2)
+                 
+                 self.oggWriter.writeFrame(currentEncoderPacket.assumingMemoryBound(to: UInt8.self), frameByteCount: UInt(currentEncoderPacketSize))
