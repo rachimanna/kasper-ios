@@ -1196,6 +1196,8 @@ index 0000000..2a7aef2
 +    /// Надпись «Kasper» на кружках, которые сохраняются в галерею.
 +    public static var watermarkVideoNotes: Bool {
 +        get { return flag(Key.watermarkVideoNotes, default: true) }
++        set { defaults.set(newValue, forKey: Key.watermarkVideoNotes) }
++    }
 +
 +    /// Сохранять в галерею копию скриншота с фиолетовой надписью «Kasper».
 +    public static var screenshotBadge: Bool {
@@ -1207,8 +1209,6 @@ index 0000000..2a7aef2
 +    public static var expandedSections: Set<String> {
 +        get { return Set(defaults.stringArray(forKey: Key.expandedSections) ?? []) }
 +        set { defaults.set(Array(newValue), forKey: Key.expandedSections) }
-+    }
-+        set { defaults.set(newValue, forKey: Key.watermarkVideoNotes) }
 +    }
 +
 +    /// Локальный ник: виден только в Kasper и не меняет настоящий username.
