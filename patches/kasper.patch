@@ -263,10 +263,10 @@ index 2b2977e..6a0df90 100644
      imageView.image = image;
 diff --git a/submodules/SettingsUI/Sources/Kasper/KasperSettingsController.swift b/submodules/SettingsUI/Sources/Kasper/KasperSettingsController.swift
 new file mode 100644
-index 0000000..1eb4b3d
+index 0000000..362f524
 --- /dev/null
 +++ b/submodules/SettingsUI/Sources/Kasper/KasperSettingsController.swift
-@@ -0,0 +1,406 @@
+@@ -0,0 +1,423 @@
 +import Foundation
 +import UIKit
 +import Display
@@ -358,6 +358,7 @@ index 0000000..1eb4b3d
 +    case deleted
 +    case voice
 +    case nickname
++    case profile
 +    case about
 +}
 +
@@ -387,6 +388,9 @@ index 0000000..1eb4b3d
 +    case nicknameInput(String)
 +    case nicknameFooter
 +
++    case profileHeader
++    case profileFooter
++
 +    case about
 +
 +    var section: ItemListSectionId {
@@ -401,6 +405,8 @@ index 0000000..1eb4b3d
 +            return KasperSettingsSection.voice.rawValue
 +        case .nicknameHeader, .nicknameInput, .nicknameFooter:
 +            return KasperSettingsSection.nickname.rawValue
++        case .profileHeader, .profileFooter:
++            return KasperSettingsSection.profile.rawValue
 +        case .about:
 +            return KasperSettingsSection.about.rawValue
 +        }
@@ -448,6 +454,10 @@ index 0000000..1eb4b3d
 +            return 31
 +        case .nicknameFooter:
 +            return 32
++        case .profileHeader:
++            return 35
++        case .profileFooter:
++            return 36
 +        case .about:
 +            return 40
 +        }
@@ -521,6 +531,10 @@ index 0000000..1eb4b3d
 +            })
 +        case .nicknameFooter:
 +            return ItemListTextItem(presentationData: presentationData, text: .plain("Показывается только в Kasper с пометкой «локально». Ваш настоящий username в Telegram не меняется и другим не виден."), sectionId: self.section)
++        case .profileHeader:
++            return ItemListSectionHeaderItem(presentationData: presentationData, text: "🆔 ID И ДАТА СОЗДАНИЯ", sectionId: self.section)
++        case .profileFooter:
++            return ItemListTextItem(presentationData: presentationData, text: .plain("На странице любого профиля, канала и группы Kasper показывает их ID — нажмите на строку, чтобы скопировать. У пользователей и ботов рядом появляется строка «Создан».\n\nТочной даты регистрации в Telegram узнать нельзя: такого поля в API нет. Kasper считает её сам, на телефоне, по тому, что ID выдаются по возрастанию. Поэтому это всегда оценка: где данных больше — показывается месяц, где меньше — «± несколько месяцев» или промежуток из нескольких лет. Включать и выключать это не нужно, оно работает всегда."), sectionId: self.section)
 +        case .about:
 +            return ItemListTextItem(presentationData: presentationData, text: .plain("Kasper — неофициальный клиент на открытом коде Telegram. Работает через официальный API и серверы Telegram. Все настройки этого раздела хранятся только на этом устройстве."), sectionId: self.section)
 +        }
@@ -560,6 +574,9 @@ index 0000000..1eb4b3d
 +    entries.append(.nicknameHeader)
 +    entries.append(.nicknameInput(state.nickname))
 +    entries.append(.nicknameFooter)
++
++    entries.append(.profileHeader)
++    entries.append(.profileFooter)
 +
 +    entries.append(.about)
 +
@@ -672,6 +689,179 @@ index 0000000..1eb4b3d
 +
 +    let controller = ItemListController(context: context, state: signal)
 +    return controller
++}
+diff --git a/submodules/TelegramCore/Sources/Kasper/KasperAccountAge.swift b/submodules/TelegramCore/Sources/Kasper/KasperAccountAge.swift
+new file mode 100644
+index 0000000..4ee5776
+--- /dev/null
++++ b/submodules/TelegramCore/Sources/Kasper/KasperAccountAge.swift
+@@ -0,0 +1,167 @@
++import Foundation
++
++/// Примерная дата создания аккаунта по его ID.
++///
++/// Telegram не сообщает дату регистрации: такого поля в официальном API нет.
++/// Но ID выдаются по возрастанию, поэтому по известным парам «ID — дата»
++/// можно прикинуть, когда аккаунт был создан. Это всегда ОЦЕНКА, а не точная дата.
++///
++/// Опорные точки собраны из открытого набора Jobians/telegram-id-age
++/// (наблюдения с августа 2013 по ноябрь 2025), приведены к возрастающему виду
++/// и сжаты. У каждого отрезка хранится своя погрешность в днях — она посчитана
++/// по разбросу исходных наблюдений, поэтому в «плотных» местах Kasper показывает
++/// месяц, а в «редких» честно показывает вилку из нескольких лет.
++///
++/// Всё считается на телефоне: никакие запросы никуда не уходят.
++public enum KasperAccountAge {
++    /// (ID, дней с 1 января 1970, погрешность отрезка в днях).
++    private static let anchors: [(id: Int64, day: Int32, spread: Int32)] = [
++        (0, 15931, 39), (2768409, 16010, 46), (11538514, 16102, 9), (15835244, 16121, 4),
++        (38015510, 16130, 37), (46145305, 16205, 64), (54845238, 16333, 83), (101260938, 16500, 43),
++        (103151531, 16586, 58), (111220210, 16600, 54), (112594714, 16647, 15), (122600695, 16647, 8),
++        (124872445, 16664, 16), (125828524, 16697, 16), (130029930, 16697, 47), (148670295, 16792, 30),
++        (157242073, 16792, 47), (171295414, 16869, 16), (181783990, 16901, 76), (278941742, 17054, 35),
++        (294851037, 17124, 13), (297621225, 17151, 52), (369669043, 17256, 61), (400169472, 17378, 357),
++        (805158066, 18092, 410), (1974255900, 18912, 28), (5031711230, 18969, 18), (5045293264, 19005, 22),
++        (5047148663, 19049, 96), (5288930461, 19079, 60), (5340744210, 19163, 128), (5433708969, 19163, 23),
++        (5442755368, 19195, 103), (5505809357, 19195, 56), (5515826405, 19216, 52), (5546930145, 19216, 24),
++        (5558980075, 19264, 117), (5735455201, 19274, 31), (5738347976, 19336, 136), (5795660441, 19336, 34),
++        (5802659303, 19382, 92), (5862080962, 19382, 43), (5869978651, 19408, 93), (5983753471, 19408, 59),
++        (5994561143, 19477, 77), (6277658932, 19477, 93), (6401027363, 19664, 29), (6523424924, 19664, 93),
++        (6536173556, 19722, 20), (6559717847, 19744, 119), (6829119388, 19744, 51), (6872061796, 19764, 104),
++        (6947316117, 19764, 61), (7078066115, 19886, 88), (7242296450, 19904, 32), (7243375923, 19922, 48),
++        (7273085448, 19949, 137), (7458668365, 19998, 61), (7591351660, 20097, 121), (7793034911, 20097, 145),
++        (7832006200, 20121, 136), (7834356221, 20252, 118), (8173852075, 20258, 118), (8200159552, 20337, 50),
++        (8369442459, 20337, 29), (8384648263, 20371, 15), (8461579295, 20371, 29), (8480708838, 20397, 3),
++        (8559682245, 20403, 0)
++    ]
++
++    /// Сколько примерно ID выдаётся за сутки — по последнему году таблицы.
++    /// Нужно только для аккаунтов новее последней опорной точки.
++    private static let idsPerDay: Double = 3164479.0
++
++    public enum Estimate {
++        /// Аккаунт старше самой ранней известной точки.
++        case orEarlier(Date)
++        /// Оценка с погрешностью в днях.
++        case around(Date, spread: Int)
++        /// Опорных точек в этом промежутке мало — честнее показать вилку.
++        case between(Date, Date)
++        /// Аккаунт новее таблицы: дата досчитана по скорости выдачи ID.
++        case extrapolated(Date)
++    }
++
++    private static func date(fromDay day: Double) -> Date {
++        return Date(timeIntervalSince1970: day * 86400.0)
++    }
++
++    /// Оценка даты регистрации. nil — если ID не похож на обычный аккаунт.
++    public static func estimate(userId: Int64) -> Estimate? {
++        guard userId > 0, !anchors.isEmpty else {
++            return nil
++        }
++
++        let first = anchors[0]
++        let last = anchors[anchors.count - 1]
++
++        if userId <= first.id {
++            return .orEarlier(date(fromDay: Double(first.day)))
++        }
++        if userId > last.id {
++            let day = Double(last.day) + Double(userId - last.id) / idsPerDay
++            // дальше сегодняшнего дня оценка уехать не может
++            let today = Date().timeIntervalSince1970 / 86400.0
++            return .extrapolated(date(fromDay: min(day, today)))
++        }
++
++        // двоичный поиск соседних опорных точек
++        var low = 0
++        var high = anchors.count - 1
++        while high - low > 1 {
++            let middle = (low + high) / 2
++            if anchors[middle].id <= userId {
++                low = middle
++            } else {
++                high = middle
++            }
++        }
++        let a = anchors[low]
++        let b = anchors[high]
++
++        let spread = Int(a.spread)
++        if spread > 150 {
++            return .between(date(fromDay: Double(a.day)), date(fromDay: Double(b.day)))
++        }
++
++        let ratio = Double(userId - a.id) / Double(b.id - a.id)
++        let day = Double(a.day) + Double(b.day - a.day) * ratio
++        return .around(date(fromDay: day), spread: spread)
++    }
++
++    // MARK: - Текст для профиля
++
++    private static let months = [
++        "январь", "февраль", "март", "апрель", "май", "июнь",
++        "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь"
++    ]
++
++    private static let calendar: Calendar = {
++        var value = Calendar(identifier: .gregorian)
++        value.timeZone = TimeZone(secondsFromGMT: 0) ?? .current
++        return value
++    }()
++
++    private static func monthYear(_ date: Date) -> String {
++        let components = calendar.dateComponents([.year, .month], from: date)
++        let month = (components.month ?? 1) - 1
++        let year = components.year ?? 1970
++        guard month >= 0 && month < months.count else {
++            return "\(year)"
++        }
++        return "\(months[month]) \(year)"
++    }
++
++    private static func year(_ date: Date) -> String {
++        return "\(calendar.dateComponents([.year], from: date).year ?? 1970)"
++    }
++
++    private static func monthsWord(_ value: Int) -> String {
++        let tail = value % 100
++        if tail >= 11 && tail <= 14 {
++            return "месяцев"
++        }
++        switch value % 10 {
++        case 1:
++            return "месяц"
++        case 2, 3, 4:
++            return "месяца"
++        default:
++            return "месяцев"
++        }
++    }
++
++    /// Готовая строка для профиля, например «≈ март 2022».
++    public static func describe(userId: Int64) -> String? {
++        guard let estimate = estimate(userId: userId) else {
++            return nil
++        }
++        switch estimate {
++        case let .orEarlier(date):
++            return "\(monthYear(date)) или раньше"
++        case let .around(date, spread):
++            let text = "≈ \(monthYear(date))"
++            if spread <= 45 {
++                return text
++            }
++            let value = max(2, Int((Double(spread) / 30.0).rounded()))
++            return "\(text) ± \(value) \(monthsWord(value))"
++        case let .between(from, to):
++            if year(from) == year(to) {
++                return "\(monthYear(from)) — \(monthYear(to))"
++            }
++            return "между \(year(from)) и \(year(to))"
++        case let .extrapolated(date):
++            return "≈ \(monthYear(date)), точность ниже"
++        }
++    }
 +}
 diff --git a/submodules/TelegramCore/Sources/Kasper/KasperSettings.swift b/submodules/TelegramCore/Sources/Kasper/KasperSettings.swift
 new file mode 100644
@@ -1161,6 +1351,130 @@ index 5f3ee4c..d899a39 100644
      return account.postbox.transaction { transaction -> [EphemeralDeleteMessageRequest] in
          var ephemeralRequests: [EphemeralDeleteMessageRequest] = []
          for messageId in messageIds where messageId.namespace == Namespaces.Message.EphemeralLocal {
+diff --git a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoProfileItems.swift b/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoProfileItems.swift
+index 80b7f20..bbc66b3 100644
+--- a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoProfileItems.swift
++++ b/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoProfileItems.swift
+@@ -16,6 +16,7 @@ import WebUI
+ import AvatarNode
+ import PeerNameColorItem
+ import BoostLevelIconComponent
++import UndoUI
+ 
+ private let enabledPublicBioEntities: EnabledEntityTypes = [.allUrl, .mention, .hashtag]
+ private let enabledPrivateBioEntities: EnabledEntityTypes = [.internalUrl, .mention, .hashtag]
+@@ -36,6 +37,68 @@ enum InfoSection: Int, CaseIterable {
+     case botAffiliateProgram
+ }
+ 
++
++/// Kasper: ID собеседника и примерная дата создания аккаунта.
++/// Показывается всегда, отдельной настройки нет.
++/// ID берётся из данных, которые клиент и так получил от Telegram,
++/// дата считается на телефоне по таблице опорных точек — никаких запросов наружу.
++private func kasperIdItems(
++    peerId: EnginePeer.Id,
++    prefix: String,
++    startingId: Int,
++    withCreationDate: Bool,
++    presentationData: PresentationData,
++    interaction: PeerInfoInteraction
++) -> [PeerInfoScreenItem] {
++    let rawId = peerId.id._internalGetInt64Value()
++    // у каналов и групп ID принято писать со знаком минус, как в Bot API
++    let displayId = "\(prefix)\(rawId)"
++
++    let copyId: (ASDisplayNode, Promise<Bool>?) -> Void = { [weak interaction] _, _ in
++        UIPasteboard.general.string = displayId
++        interaction?.getController()?.present(
++            UndoOverlayController(
++                presentationData: presentationData,
++                content: .copy(text: "ID скопирован"),
++                elevatedLayout: false,
++                animateInAsReplacement: false,
++                action: { _ in return false }
++            ),
++            in: .current
++        )
++    }
++
++    var result: [PeerInfoScreenItem] = []
++    result.append(PeerInfoScreenLabeledValueItem(
++        id: startingId,
++        label: "ID",
++        text: displayId,
++        textColor: .primary,
++        action: copyId,
++        longTapAction: { node in
++            copyId(node, nil)
++        },
++        requestLayout: { animated in
++            interaction.requestLayout(animated)
++        }
++    ))
++
++    if withCreationDate, let created = KasperAccountAge.describe(userId: rawId) {
++        result.append(PeerInfoScreenLabeledValueItem(
++            id: startingId + 1,
++            label: "Создан",
++            text: created,
++            textColor: .primary,
++            action: nil,
++            requestLayout: { animated in
++                interaction.requestLayout(animated)
++            }
++        ))
++    }
++
++    return result
++}
++
+ func infoItems(
+     data: PeerInfoScreenData?,
+     context: AccountContext,
+@@ -110,6 +173,7 @@ func infoItems(
+         let ItemBotAddToChatInfo = 9003
+         let ItemVerification = 9004
+         let ItemCommunity = 10000
++        let ItemKasperId = 11000
+         
+         if let cachedUserData = data.cachedData as? CachedUserData, cachedUserData.flags.contains(.unofficialSecurityRisk) {
+             items[.unofficial]!.append(PeerInfoScreenInfoItem(id: 0, title: "", text: .markdown(presentationData.strings.PeerInfo_UnofficialSecurityRisk(EnginePeer(user).compactDisplayTitle).string), style: .compact, linkAction: nil))
+@@ -205,6 +269,8 @@ func infoItems(
+             )
+         }
+         
++        items[currentPeerInfoSection]!.append(contentsOf: kasperIdItems(peerId: user.id, prefix: "", startingId: ItemKasperId, withCreationDate: true, presentationData: presentationData, interaction: interaction))
++        
+         if let cachedData = data.cachedData as? CachedUserData {
+             if let birthday = cachedData.birthday {
+                 let isBirthdayToday = hasBirthdayToday(birthday: birthday)
+@@ -555,6 +621,7 @@ func infoItems(
+         let ItemEdit = 10
+         let ItemPeerPersonalChannel = 11
+         let ItemCommunity = 12
++        let ItemKasperId = 900
+         
+         if let _ = data.threadData {
+             let mainUsername: String
+@@ -653,6 +720,8 @@ func infoItems(
+                     )
+                 )
+             }
++            items[currentPeerInfoSection]!.append(contentsOf: kasperIdItems(peerId: channel.id, prefix: "-100", startingId: ItemKasperId, withCreationDate: false, presentationData: presentationData, interaction: interaction))
++
+             if let cachedData = data.cachedData as? CachedChannelData {
+                 let aboutText: String?
+                 if channel.isFake {
+@@ -826,6 +895,8 @@ func infoItems(
+             }
+         }
+     } else if case let .legacyGroup(group) = data.peer {
++        items[currentPeerInfoSection]!.append(contentsOf: kasperIdItems(peerId: group.id, prefix: "-", startingId: 900, withCreationDate: false, presentationData: presentationData, interaction: interaction))
++        
+         if let cachedData = data.cachedData as? CachedGroupData {
+             let aboutText: String?
+             if group.isFake {
 diff --git a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoScreen.swift b/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoScreen.swift
 index fd01930..3f2cf65 100644
 --- a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoScreen.swift
