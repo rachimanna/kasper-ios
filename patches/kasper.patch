@@ -31,45 +31,231 @@ index 9ad13cf..f0b7d68 100644
      <key>CFBundleIdentifier</key>
      <string>{telegram_bundle_id}</string>
      <key>CFBundleName</key>
+diff --git a/Telegram/Telegram-iOS/Telegram.icon/Assets/Oval.svg b/Telegram/Telegram-iOS/Telegram.icon/Assets/Oval.svg
+index c3e4785..147df7a 100644
+--- a/Telegram/Telegram-iOS/Telegram.icon/Assets/Oval.svg
++++ b/Telegram/Telegram-iOS/Telegram.icon/Assets/Oval.svg
+@@ -2,6 +2,6 @@
+ <svg width="1024px" height="1024px" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+     <title>Oval</title>
+     <g id="Oval" stroke="none" fill="none" fill-rule="nonzero">
+-        <circle fill="#000000" cx="512" cy="512" r="410.5"></circle>
++        <circle fill="#000000" cx="512" cy="512" r="730"></circle>
+     </g>
+-</svg>
+\ No newline at end of file
++</svg>
 diff --git a/Telegram/Telegram-iOS/Telegram.icon/Assets/Plane.svg b/Telegram/Telegram-iOS/Telegram.icon/Assets/Plane.svg
-index e475bcf..aa9a33d 100644
+index e475bcf..ee26316 100644
 --- a/Telegram/Telegram-iOS/Telegram.icon/Assets/Plane.svg
 +++ b/Telegram/Telegram-iOS/Telegram.icon/Assets/Plane.svg
-@@ -1,7 +1,7 @@
+@@ -1,7 +1,12 @@
  <?xml version="1.0" encoding="UTF-8"?>
 -<svg width="1024px" height="1024px" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
 +<svg width="1024px" height="1024px" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg">
      <title>Plane</title>
-     <g id="Plane" stroke="none" fill="none" fill-rule="nonzero">
+-    <g id="Plane" stroke="none" fill="none" fill-rule="nonzero">
 -        <path d="M287.315632,507.666819 C406.984718,455.528898 486.782853,421.15639 526.710034,404.549294 C640.710251,357.13266 664.39852,348.895883 679.838202,348.621 C683.234017,348.56408 690.826804,349.405665 695.745092,353.396516 C699.897998,356.766313 701.040629,361.31843 701.587414,364.513367 C702.1342,367.708304 702.815079,374.986453 702.273832,380.673387 C696.09612,445.583141 669.36526,603.101997 655.766116,675.802034 C650.011808,706.564145 638.681397,716.878524 627.712247,717.887922 C603.873746,720.081578 585.77187,702.133777 562.683116,686.998808 C526.553773,663.315568 506.142993,648.572678 471.073211,625.462211 C430.544009,598.754068 456.817404,584.074808 479.914878,560.08479 C485.959597,553.806488 590.992581,458.270869 593.025497,449.604291 C593.279747,448.520391 593.515704,444.480123 591.115452,442.346714 C588.715199,440.213304 585.172634,440.942847 582.61622,441.52306 C578.99258,442.345492 521.275488,480.49435 409.464943,555.969631 C393.082138,567.219329 378.243103,572.700559 364.947836,572.413323 C350.290871,572.096667 322.096751,564.126052 301.137321,557.312967 C275.429726,548.956441 254.997841,544.538286 256.777,530.34632 C257.703696,522.954266 267.883239,515.394432 287.315632,507.666819 Z" id="Path-3" fill="#FFFFFF"></path>
-+        <path id="Kasper-K" fill="#FFFFFF" d="M342.5,292 L390.5,292 C410.5,292 422.5,304 422.5,324 L422.5,478 L580.5,308 C592.5,296 602.5,292 618.5,292 L674.5,292 C696.5,292 704.5,314 689.5,330 L520.5,508 L698.5,696 C713.5,712 704.5,732 682.5,732 L622.5,732 C606.5,732 596.5,728 584.5,715 L422.5,540 L422.5,700 C422.5,720 410.5,732 390.5,732 L342.5,732 C322.5,732 310.5,720 310.5,700 L310.5,324 C310.5,304 322.5,292 342.5,292 Z"></path>
++    <g id="Plane" fill-rule="nonzero">
++        <path id="Kasper-Gap-0" fill="none" stroke="#000000" stroke-width="12" stroke-linejoin="round" d="M321.3,388.1 C315.7,293.7 390.1,234.5 481.3,240.9 C582.1,248.9 633.3,333.7 607.7,418.5 C586.9,482.5 546.9,517.7 534.1,554.5 C526.1,580.1 498.9,591.3 482.9,573.7 C470.1,559.3 474.9,527.3 487.7,501.7 C500.5,476.1 511.7,452.1 511.7,421.7 C513.3,378.5 481.3,354.5 444.5,357.7 C407.7,360.9 385.3,388.1 385.3,424.9 C385.3,445.7 364.5,458.5 345.3,447.3 C329.3,437.7 322.1,415.3 321.3,388.1 Z"></path>
++        <path id="Kasper-Swirl-0" fill="#FFFFFF" d="M321.3,388.1 C315.7,293.7 390.1,234.5 481.3,240.9 C582.1,248.9 633.3,333.7 607.7,418.5 C586.9,482.5 546.9,517.7 534.1,554.5 C526.1,580.1 498.9,591.3 482.9,573.7 C470.1,559.3 474.9,527.3 487.7,501.7 C500.5,476.1 511.7,452.1 511.7,421.7 C513.3,378.5 481.3,354.5 444.5,357.7 C407.7,360.9 385.3,388.1 385.3,424.9 C385.3,445.7 364.5,458.5 345.3,447.3 C329.3,437.7 322.1,415.3 321.3,388.1 Z"></path>
++        <path id="Kasper-Gap-1" fill="none" stroke="#000000" stroke-width="12" stroke-linejoin="round" d="M711.4,454.1 C795.9,496.5 810.0,590.5 758.9,666.3 C701.5,749.6 602.5,751.5 541.8,686.9 C496.8,636.9 486.3,584.7 460.9,555.2 C442.7,535.5 446.6,506.3 469.8,501.3 C488.7,497.4 514.0,517.5 529.8,541.4 C545.6,565.3 560.7,587.0 587.1,602.2 C623.7,625.2 660.5,609.5 676.1,576.0 C691.7,542.5 679.4,509.5 647.5,491.1 C629.5,480.7 628.8,456.3 648.1,445.3 C664.4,436.2 687.4,441.2 711.4,454.1 Z"></path>
++        <path id="Kasper-Swirl-1" fill="#FFFFFF" d="M711.4,454.1 C795.9,496.5 810.0,590.5 758.9,666.3 C701.5,749.6 602.5,751.5 541.8,686.9 C496.8,636.9 486.3,584.7 460.9,555.2 C442.7,535.5 446.6,506.3 469.8,501.3 C488.7,497.4 514.0,517.5 529.8,541.4 C545.6,565.3 560.7,587.0 587.1,602.2 C623.7,625.2 660.5,609.5 676.1,576.0 C691.7,542.5 679.4,509.5 647.5,491.1 C629.5,480.7 628.8,456.3 648.1,445.3 C664.4,436.2 687.4,441.2 711.4,454.1 Z"></path>
++        <path id="Kasper-Gap-2" fill="none" stroke="#000000" stroke-width="12" stroke-linejoin="round" d="M459.2,759.0 C380.2,811.0 291.8,776.2 251.7,694.0 C208.2,602.7 256.1,516.0 342.3,495.7 C408.1,481.7 458.6,498.8 496.9,491.5 C523.1,485.6 546.4,503.6 539.1,526.2 C533.1,544.5 502.9,556.3 474.4,558.1 C445.8,559.8 419.4,562.1 393.1,577.3 C354.9,597.5 350.1,637.2 371.3,667.5 C392.4,697.7 427.2,703.5 459.1,685.1 C477.1,674.7 498.6,686.3 498.5,708.6 C498.1,727.2 482.3,744.7 459.2,759.0 Z"></path>
++        <path id="Kasper-Swirl-2" fill="#FFFFFF" d="M459.2,759.0 C380.2,811.0 291.8,776.2 251.7,694.0 C208.2,602.7 256.1,516.0 342.3,495.7 C408.1,481.7 458.6,498.8 496.9,491.5 C523.1,485.6 546.4,503.6 539.1,526.2 C533.1,544.5 502.9,556.3 474.4,558.1 C445.8,559.8 419.4,562.1 393.1,577.3 C354.9,597.5 350.1,637.2 371.3,667.5 C392.4,697.7 427.2,703.5 459.1,685.1 C477.1,674.7 498.6,686.3 498.5,708.6 C498.1,727.2 482.3,744.7 459.2,759.0 Z"></path>
      </g>
 -</svg>
 \ No newline at end of file
 +</svg>
 diff --git a/Telegram/Telegram-iOS/Telegram.icon/icon.json b/Telegram/Telegram-iOS/Telegram.icon/icon.json
-index b1143f6..0a1ffbd 100644
+index b1143f6..03e3cee 100644
 --- a/Telegram/Telegram-iOS/Telegram.icon/icon.json
 +++ b/Telegram/Telegram-iOS/Telegram.icon/icon.json
-@@ -51,15 +51,15 @@
+@@ -1,35 +1,35 @@
+ {
+-  "fill" : "system-light",
+-  "groups" : [
++  "fill": "system-dark",
++  "groups": [
+     {
+-      "blend-mode" : "normal",
+-      "blur-material" : 1,
+-      "layers" : [
++      "blend-mode": "normal",
++      "blur-material": 1,
++      "layers": [
+         {
+-          "blend-mode-specializations" : [
++          "blend-mode-specializations": [
              {
-               "value" : {
-                 "linear-gradient" : [
+-              "value" : "normal"
++              "value": "normal"
+             },
+             {
+-              "appearance" : "dark",
+-              "value" : "normal"
++              "appearance": "dark",
++              "value": "normal"
+             }
+           ],
+-          "fill-specializations" : [
++          "fill-specializations": [
+             {
+-              "appearance" : "dark",
+-              "value" : "automatic"
++              "appearance": "dark",
++              "value": "automatic"
+             }
+           ],
+-          "glass" : true,
+-          "image-name" : "Plane.svg",
+-          "name" : "Plane",
+-          "position-specializations" : [
++          "glass": true,
++          "image-name": "Plane.svg",
++          "name": "Plane",
++          "position-specializations": [
+             {
+-              "idiom" : "watchOS",
+-              "value" : {
+-                "scale" : 1.35,
+-                "translation-in-points" : [
++              "idiom": "watchOS",
++              "value": {
++                "scale": 1.35,
++                "translation-in-points": [
+                   0,
+                   0
+                 ]
+@@ -38,49 +38,52 @@
+           ]
+         },
+         {
+-          "blend-mode-specializations" : [
++          "blend-mode-specializations": [
+             {
+-              "value" : "normal"
++              "value": "normal"
+             },
+             {
+-              "appearance" : "dark",
+-              "value" : "normal"
++              "appearance": "dark",
++              "value": "normal"
+             }
+           ],
+-          "fill-specializations" : [
++          "fill-specializations": [
+             {
+-              "value" : {
+-                "linear-gradient" : [
 -                  "display-p3:0.21569,0.68627,0.89020,1.00000",
 -                  "srgb:0.11373,0.57647,0.82353,1.00000"
-+                  "srgb:0.60784,0.36078,1.00000,1.00000",
-+                  "srgb:0.35686,0.12941,0.71373,1.00000"
++              "value": {
++                "linear-gradient": [
++                  "srgb:0.14902,0.14902,0.16863,1.00000",
++                  "srgb:0.01961,0.01961,0.02353,1.00000"
                  ]
                }
              },
              {
-               "appearance" : "dark",
-               "value" : {
+-              "appearance" : "dark",
+-              "value" : {
 -                "automatic-gradient" : "srgb:0.00000,0.47843,1.00000,1.00000"
-+                "automatic-gradient" : "srgb:0.48627,0.22745,0.92941,1.00000"
++              "appearance": "dark",
++              "value": {
++                "linear-gradient": [
++                  "srgb:0.14902,0.14902,0.16863,1.00000",
++                  "srgb:0.01961,0.01961,0.02353,1.00000"
++                ]
                }
              }
            ],
+-          "glass" : true,
+-          "hidden-specializations" : [
++          "glass": false,
++          "hidden-specializations": [
+             {
+-              "value" : false
++              "value": false
+             },
+             {
+-              "idiom" : "watchOS",
+-              "value" : false
++              "idiom": "watchOS",
++              "value": false
+             }
+           ],
+-          "image-name" : "Oval.svg",
+-          "name" : "Oval",
+-          "position-specializations" : [
++          "image-name": "Oval.svg",
++          "name": "Oval",
++          "position-specializations": [
+             {
+-              "idiom" : "watchOS",
+-              "value" : {
+-                "scale" : 2,
+-                "translation-in-points" : [
++              "idiom": "watchOS",
++              "value": {
++                "scale": 2,
++                "translation-in-points": [
+                   0,
+                   0
+                 ]
+@@ -89,34 +92,34 @@
+           ]
+         }
+       ],
+-      "lighting" : "combined",
+-      "position-specializations" : [
++      "lighting": "combined",
++      "position-specializations": [
+         {
+-          "idiom" : "watchOS",
+-          "value" : {
+-            "scale" : 1,
+-            "translation-in-points" : [
++          "idiom": "watchOS",
++          "value": {
++            "scale": 1,
++            "translation-in-points": [
+               0,
+               0
+             ]
+           }
+         }
+       ],
+-      "shadow" : {
+-        "kind" : "layer-color",
+-        "opacity" : 1
++      "shadow": {
++        "kind": "layer-color",
++        "opacity": 1
+       },
+-      "specular" : true,
+-      "translucency" : {
+-        "enabled" : false,
+-        "value" : 1
++      "specular": true,
++      "translucency": {
++        "enabled": false,
++        "value": 1
+       }
+     }
+   ],
+-  "supported-platforms" : {
+-    "circles" : [
++  "supported-platforms": {
++    "circles": [
+       "watchOS"
+     ],
+-    "squares" : "shared"
++    "squares": "shared"
+   }
+ }
+\ No newline at end of file
 diff --git a/Telegram/Telegram-iOS/ar.lproj/InfoPlist.strings b/Telegram/Telegram-iOS/ar.lproj/InfoPlist.strings
 index 174276a..3bf8ea8 100644
 --- a/Telegram/Telegram-iOS/ar.lproj/InfoPlist.strings
@@ -148,7 +334,7 @@ index aa3b3ca..2fb21e7 100644
      visibility = [
          "//visibility:public",
 diff --git a/submodules/RMIntro/Sources/platform/ios/RMIntroViewController.m b/submodules/RMIntro/Sources/platform/ios/RMIntroViewController.m
-index 2b2977e..6a0df90 100644
+index 2b2977e..c7711c0 100644
 --- a/submodules/RMIntro/Sources/platform/ios/RMIntroViewController.m
 +++ b/submodules/RMIntro/Sources/platform/ios/RMIntroViewController.m
 @@ -16,6 +16,7 @@
@@ -177,7 +363,7 @@ index 2b2977e..6a0df90 100644
                      [strongSelf->_alternativeLanguageButton sizeToFit];
                      
                      if ([strongSelf isViewLoaded]) {
-@@ -303,12 +306,60 @@ typedef enum {
+@@ -303,12 +306,97 @@ typedef enum {
          
          [self setupGL];
          [self.view addSubview:_glkView];
@@ -206,19 +392,56 @@ index 2b2977e..6a0df90 100644
 +    CAGradientLayer *gradient = [CAGradientLayer layer];
 +    gradient.frame = circle.bounds;
 +    gradient.colors = @[
-+        (id)[UIColor colorWithRed:0.61 green:0.36 blue:1.0 alpha:1.0].CGColor,
-+        (id)[UIColor colorWithRed:0.36 green:0.13 blue:0.71 alpha:1.0].CGColor
++        (id)[UIColor colorWithRed:0.15 green:0.15 blue:0.17 alpha:1.0].CGColor,
++        (id)[UIColor colorWithRed:0.02 green:0.02 blue:0.024 alpha:1.0].CGColor
 +    ];
 +    gradient.startPoint = CGPointMake(0.0, 0.0);
 +    gradient.endPoint = CGPointMake(1.0, 1.0);
 +    [circle.layer addSublayer:gradient];
 +    
-+    UILabel *letter = [[UILabel alloc] initWithFrame:circle.bounds];
-+    letter.text = @"K";
-+    letter.textAlignment = NSTextAlignmentCenter;
-+    letter.textColor = [UIColor whiteColor];
-+    letter.font = [UIFont systemFontOfSize:floor(circleSize * 0.56) weight:UIFontWeightHeavy];
-+    [circle addSubview:letter];
++    // Знак Kasper: три белых завитка, как на иконке приложения
++    CALayer *swirl = [CALayer layer];
++    swirl.frame = circle.bounds;
++    CGMutablePathRef lobe = CGPathCreateMutable();
++    CGPathMoveToPoint(lobe, NULL, 292, 330);
++    CGPathAddCurveToPoint(lobe, NULL, 285, 212, 378, 138, 492, 146);
++    CGPathAddCurveToPoint(lobe, NULL, 618, 156, 682, 262, 650, 368);
++    CGPathAddCurveToPoint(lobe, NULL, 624, 448, 574, 492, 558, 538);
++    CGPathAddCurveToPoint(lobe, NULL, 548, 570, 514, 584, 494, 562);
++    CGPathAddCurveToPoint(lobe, NULL, 478, 544, 484, 504, 500, 472);
++    CGPathAddCurveToPoint(lobe, NULL, 516, 440, 530, 410, 530, 372);
++    CGPathAddCurveToPoint(lobe, NULL, 532, 318, 492, 288, 446, 292);
++    CGPathAddCurveToPoint(lobe, NULL, 400, 296, 372, 330, 372, 376);
++    CGPathAddCurveToPoint(lobe, NULL, 372, 402, 346, 418, 322, 404);
++    CGPathAddCurveToPoint(lobe, NULL, 302, 392, 293, 364, 292, 330);
++    CGPathCloseSubpath(lobe);
++    CGFloat swirlScale = circleSize / 1024.0 * 0.8;
++    for (int k = 0; k < 3; k++) {
++        CGAffineTransform t = CGAffineTransformMakeTranslation(circleSize / 2.0, circleSize / 2.0);
++        t = CGAffineTransformScale(t, swirlScale, swirlScale);
++        t = CGAffineTransformRotate(t, (CGFloat)k * 2.0 * (CGFloat)M_PI / 3.0);
++        t = CGAffineTransformTranslate(t, -512.0, -512.0);
++        CGPathRef transformed = CGPathCreateCopyByTransformingPath(lobe, &t);
++        CAShapeLayer *shape = [CAShapeLayer layer];
++        shape.frame = circle.bounds;
++        shape.path = transformed;
++        shape.fillColor = [UIColor whiteColor].CGColor;
++        shape.strokeColor = [UIColor colorWithRed:0.02 green:0.02 blue:0.024 alpha:1.0].CGColor;
++        shape.lineWidth = MAX(1.0, circleSize * 0.012);
++        shape.lineJoin = kCALineJoinRound;
++        [swirl addSublayer:shape];
++        CGPathRelease(transformed);
++    }
++    CGPathRelease(lobe);
++    [circle.layer addSublayer:swirl];
++    
++    // Медленное вращение знака
++    CABasicAnimation *spin = [CABasicAnimation animationWithKeyPath:@"transform.rotation.z"];
++    spin.fromValue = @(0.0);
++    spin.toValue = @(2.0 * M_PI);
++    spin.duration = 24.0;
++    spin.repeatCount = HUGE_VALF;
++    [swirl addAnimation:spin forKey:@"kasperSpin"];
 +    
 +    [container addSubview:circle];
 +    [hostView addSubview:container];
@@ -238,7 +461,7 @@ index 2b2977e..6a0df90 100644
  - (void)freeGL
  {
      if (!_isOpenGLLoaded)
-@@ -320,6 +371,8 @@ typedef enum {
+@@ -320,6 +408,8 @@ typedef enum {
          [EAGLContext setCurrentContext:nil];
  
      _context = nil;
@@ -247,7 +470,7 @@ index 2b2977e..6a0df90 100644
      [_glkView removeFromSuperview];
      _glkView = nil;
      _isOpenGLLoaded = false;
-@@ -390,6 +443,13 @@ typedef enum {
+@@ -390,6 +480,13 @@ typedef enum {
  }
  
  - (UIView *)createAnimationSnapshot {
@@ -1953,7 +2176,7 @@ index 806e652..a0ca35e 100644
              self.controller?.openAvatarForEditing()
          case .edit:
 diff --git a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoSettingsItems.swift b/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoSettingsItems.swift
-index c5f58f4..b073cbf 100644
+index c5f58f4..5e42671 100644
 --- a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoSettingsItems.swift
 +++ b/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoSettingsItems.swift
 @@ -18,6 +18,7 @@ enum SettingsSection: Int, CaseIterable {
@@ -1964,35 +2187,68 @@ index c5f58f4..b073cbf 100644
      case proxy
      case apps
      case shortcuts
-@@ -27,6 +28,27 @@ enum SettingsSection: Int, CaseIterable {
+@@ -27,6 +28,60 @@ enum SettingsSection: Int, CaseIterable {
      case support
  }
  
-+// Kasper: иконка раздела — фиолетовый градиент с буквой «K»
++// Kasper: знак из трёх завитков (контур одного завитка в координатах 1024×1024)
++private let kasperSwirlLobe: CGPath = {
++    let path = CGMutablePath()
++    path.move(to: CGPoint(x: 292, y: 330))
++    path.addCurve(to: CGPoint(x: 492, y: 146), control1: CGPoint(x: 285, y: 212), control2: CGPoint(x: 378, y: 138))
++    path.addCurve(to: CGPoint(x: 650, y: 368), control1: CGPoint(x: 618, y: 156), control2: CGPoint(x: 682, y: 262))
++    path.addCurve(to: CGPoint(x: 558, y: 538), control1: CGPoint(x: 624, y: 448), control2: CGPoint(x: 574, y: 492))
++    path.addCurve(to: CGPoint(x: 494, y: 562), control1: CGPoint(x: 548, y: 570), control2: CGPoint(x: 514, y: 584))
++    path.addCurve(to: CGPoint(x: 500, y: 472), control1: CGPoint(x: 478, y: 544), control2: CGPoint(x: 484, y: 504))
++    path.addCurve(to: CGPoint(x: 530, y: 372), control1: CGPoint(x: 516, y: 440), control2: CGPoint(x: 530, y: 410))
++    path.addCurve(to: CGPoint(x: 446, y: 292), control1: CGPoint(x: 532, y: 318), control2: CGPoint(x: 492, y: 288))
++    path.addCurve(to: CGPoint(x: 372, y: 376), control1: CGPoint(x: 400, y: 296), control2: CGPoint(x: 372, y: 330))
++    path.addCurve(to: CGPoint(x: 322, y: 404), control1: CGPoint(x: 372, y: 402), control2: CGPoint(x: 346, y: 418))
++    path.addCurve(to: CGPoint(x: 292, y: 330), control1: CGPoint(x: 302, y: 392), control2: CGPoint(x: 293, y: 364))
++    path.closeSubpath()
++    return path
++}()
++
++// Kasper: иконка раздела — чёрный фон и белые завитки, как иконка приложения
 +private let kasperSettingsIcon: UIImage? = generateImage(CGSize(width: 30.0, height: 30.0), rotatedContext: { size, context in
 +    let bounds = CGRect(origin: CGPoint(), size: size)
 +    context.clear(bounds)
 +    context.addPath(UIBezierPath(roundedRect: bounds, cornerRadius: 8.0).cgPath)
 +    context.clip()
-+    let colors = [UIColor(rgb: 0x9B5CFF).cgColor, UIColor(rgb: 0x5B21B6).cgColor] as CFArray
++    let colors = [UIColor(rgb: 0x26262B).cgColor, UIColor(rgb: 0x050506).cgColor] as CFArray
 +    var locations: [CGFloat] = [0.0, 1.0]
 +    if let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors, locations: &locations) {
 +        context.drawLinearGradient(gradient, start: CGPoint(x: 0.0, y: 0.0), end: CGPoint(x: size.width, y: size.height), options: CGGradientDrawingOptions())
 +    }
-+    UIGraphicsPushContext(context)
-+    let letter = NSAttributedString(string: "K", attributes: [
-+        NSAttributedString.Key.font: UIFont.systemFont(ofSize: 18.0, weight: .heavy),
-+        NSAttributedString.Key.foregroundColor: UIColor.white
-+    ])
-+    let letterSize = letter.size()
-+    letter.draw(at: CGPoint(x: (size.width - letterSize.width) / 2.0, y: (size.height - letterSize.height) / 2.0))
-+    UIGraphicsPopContext()
++    let side = size.width
++    let glyphScale: CGFloat = 0.9
++    let scale = side / 1024.0 * glyphScale
++    // сдвиг, чтобы знак стоял ровно по центру
++    let centerX = side / 2.0 - 18.4 * glyphScale * side / 1024.0
++    let centerY = side / 2.0 + 27.2 * glyphScale * side / 1024.0
++    for k in 0 ..< 3 {
++        var transform = CGAffineTransform(translationX: centerX, y: centerY)
++            .scaledBy(x: scale, y: scale)
++            .rotated(by: CGFloat(k) * 2.0 * CGFloat.pi / 3.0)
++            .translatedBy(x: -512.0, y: -512.0)
++        guard let lobe = kasperSwirlLobe.copy(using: &transform) else {
++            continue
++        }
++        context.addPath(lobe)
++        context.setFillColor(UIColor.white.cgColor)
++        context.fillPath()
++        context.addPath(lobe)
++        context.setStrokeColor(UIColor(rgb: 0x050506).cgColor)
++        context.setLineWidth(0.6)
++        context.setLineJoin(.round)
++        context.strokePath()
++    }
 +})
 +
  func settingsItems(data: PeerInfoScreenData?, context: AccountContext, presentationData: PresentationData, interaction: PeerInfoInteraction, isExpanded: Bool) -> [(AnyHashable, [PeerInfoScreenItem])] {
      guard let data = data else {
          return []
-@@ -196,6 +218,12 @@ func settingsItems(data: PeerInfoScreenData?, context: AccountContext, presentat
+@@ -196,6 +251,12 @@ func settingsItems(data: PeerInfoScreenData?, context: AccountContext, presentat
          }
      }
      
