@@ -261,12 +261,137 @@ index 2b2977e..6a0df90 100644
      UIImage *image = _glkView.snapshot;
      UIImageView *imageView = [[UIImageView alloc] initWithFrame:_glkView.frame];
      imageView.image = image;
+diff --git a/submodules/SaveToCameraRoll/Sources/SaveToCameraRoll.swift b/submodules/SaveToCameraRoll/Sources/SaveToCameraRoll.swift
+index 2f8b30b..704f26a 100644
+--- a/submodules/SaveToCameraRoll/Sources/SaveToCameraRoll.swift
++++ b/submodules/SaveToCameraRoll/Sources/SaveToCameraRoll.swift
+@@ -8,6 +8,7 @@ import MobileCoreServices
+ import DeviceAccess
+ import AccountContext
+ import LegacyComponents
++import AVFoundation
+ 
+ public enum FetchMediaDataState {
+     case progress(Float)
+@@ -110,6 +111,9 @@ public func saveToCameraRoll(context: AccountContext, userLocation: MediaResourc
+         videoData = .single(nil)
+     }
+ 
++    // Kasper: на сохранённые кружки добавляется надпись «Kasper»
++    let kasperIsVideoNote = video == nil && ((mediaReference.media as? TelegramMediaFile)?.isInstantVideo ?? false) && KasperSettings.watermarkVideoNotes
++    
+     return combineLatest(
+         queue: Queue.mainQueue(),
+         mediaData,
+@@ -175,6 +179,24 @@ public func saveToCameraRoll(context: AccountContext, userLocation: MediaResourc
+                                 subscriber.putCompletion()
+                             })
+                         }
++                    } else if !isImage && kasperIsVideoNote {
++                        let watermarkedURL = URL(fileURLWithPath: NSTemporaryDirectory() + "\(Int64.random(in: Int64.min ... Int64.max)).mp4")
++                        kasperWatermarkVideoNote(inputPath: mainData.path, outputURL: watermarkedURL, completion: { success in
++                            // если наложить надпись не получилось, сохраняем кружок как есть
++                            let fileURL = success ? watermarkedURL : URL(fileURLWithPath: mainData.path)
++                            PHPhotoLibrary.shared().performChanges({
++                                if success {
++                                    PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: fileURL)
++                                } else if let _ = try? FileManager.default.copyItem(atPath: mainData.path, toPath: tempVideoPath) {
++                                    PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: URL(fileURLWithPath: tempVideoPath))
++                                }
++                            }, completionHandler: { _, _ in
++                                let _ = try? FileManager.default.removeItem(at: watermarkedURL)
++                                let _ = try? FileManager.default.removeItem(atPath: tempVideoPath)
++                                subscriber.putNext(1.0)
++                                subscriber.putCompletion()
++                            })
++                        })
+                     } else {
+                         PHPhotoLibrary.shared().performChanges({
+                             if isImage {
+@@ -282,3 +304,77 @@ private func addAssetIdentifierToVideo(inputURL: URL, outputURL: URL, assetIdent
+         completion(exportSession.status == .completed)
+     }
+ }
++
++/// Kasper: накладывает на кружок надпись «Kasper» снизу по центру.
++/// Всё делается на телефоне; при любой ошибке вызывается completion(false).
++private func kasperWatermarkVideoNote(inputPath: String, outputURL: URL, completion: @escaping (Bool) -> Void) {
++    let asset = AVURLAsset(url: URL(fileURLWithPath: inputPath))
++    guard let sourceVideoTrack = asset.tracks(withMediaType: .video).first else {
++        completion(false)
++        return
++    }
++    let composition = AVMutableComposition()
++    let timeRange = CMTimeRange(start: .zero, duration: asset.duration)
++    guard let videoTrack = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) else {
++        completion(false)
++        return
++    }
++    do {
++        try videoTrack.insertTimeRange(timeRange, of: sourceVideoTrack, at: .zero)
++    } catch {
++        completion(false)
++        return
++    }
++    if let sourceAudioTrack = asset.tracks(withMediaType: .audio).first, let audioTrack = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) {
++        try? audioTrack.insertTimeRange(timeRange, of: sourceAudioTrack, at: .zero)
++    }
++    
++    let transformedSize = sourceVideoTrack.naturalSize.applying(sourceVideoTrack.preferredTransform)
++    let renderSize = CGSize(width: max(16.0, abs(transformedSize.width)), height: max(16.0, abs(transformedSize.height)))
++    
++    let layerInstruction = AVMutableVideoCompositionLayerInstruction(assetTrack: videoTrack)
++    layerInstruction.setTransform(sourceVideoTrack.preferredTransform, at: .zero)
++    let instruction = AVMutableVideoCompositionInstruction()
++    instruction.timeRange = CMTimeRange(start: .zero, duration: composition.duration)
++    instruction.layerInstructions = [layerInstruction]
++    
++    let parentLayer = CALayer()
++    parentLayer.frame = CGRect(origin: .zero, size: renderSize)
++    let videoLayer = CALayer()
++    videoLayer.frame = parentLayer.frame
++    parentLayer.addSublayer(videoLayer)
++    
++    let fontSize = max(12.0, renderSize.height * 0.055)
++    let textLayer = CATextLayer()
++    textLayer.string = "Kasper"
++    textLayer.font = UIFont.systemFont(ofSize: fontSize, weight: .bold)
++    textLayer.fontSize = fontSize
++    textLayer.foregroundColor = UIColor(white: 1.0, alpha: 0.9).cgColor
++    textLayer.alignmentMode = .center
++    textLayer.contentsScale = 2.0
++    textLayer.shadowColor = UIColor.black.cgColor
++    textLayer.shadowOpacity = 0.55
++    textLayer.shadowRadius = 3.0
++    textLayer.shadowOffset = .zero
++    // слои видео считаются снизу вверх: надпись внутри круга, чуть выше нижнего края
++    textLayer.frame = CGRect(x: 0.0, y: renderSize.height * 0.1, width: renderSize.width, height: fontSize * 1.35)
++    parentLayer.addSublayer(textLayer)
++    
++    let videoComposition = AVMutableVideoComposition()
++    videoComposition.renderSize = renderSize
++    videoComposition.frameDuration = CMTime(value: 1, timescale: 30)
++    videoComposition.instructions = [instruction]
++    videoComposition.animationTool = AVVideoCompositionCoreAnimationTool(postProcessingAsVideoLayer: videoLayer, in: parentLayer)
++    
++    guard let exportSession = AVAssetExportSession(asset: composition, presetName: AVAssetExportPresetHighestQuality) else {
++        completion(false)
++        return
++    }
++    exportSession.outputURL = outputURL
++    exportSession.outputFileType = .mp4
++    exportSession.videoComposition = videoComposition
++    exportSession.shouldOptimizeForNetworkUse = true
++    exportSession.exportAsynchronously {
++        completion(exportSession.status == .completed)
++    }
++}
 diff --git a/submodules/SettingsUI/Sources/Kasper/KasperSettingsController.swift b/submodules/SettingsUI/Sources/Kasper/KasperSettingsController.swift
 new file mode 100644
-index 0000000..362f524
+index 0000000..bd6054a
 --- /dev/null
 +++ b/submodules/SettingsUI/Sources/Kasper/KasperSettingsController.swift
-@@ -0,0 +1,423 @@
+@@ -0,0 +1,501 @@
 +import Foundation
 +import UIKit
 +import Display
@@ -290,6 +415,9 @@ index 0000000..362f524
 +    var voice: KasperVoice
 +    var voiceInCalls: Bool
 +    var nickname: String
++    var profileTab: Bool
++    var legacyGlass: Bool
++    var watermarkVideoNotes: Bool
 +
 +    var ghostEnabled: Bool {
 +        return self.hideOnline && self.hideReadReceipts && self.hideTyping && self.hideListened
@@ -306,7 +434,10 @@ index 0000000..362f524
 +            deletedCaught: KasperSettings.deletedCaught,
 +            voice: KasperSettings.voice,
 +            voiceInCalls: KasperSettings.voiceInCalls,
-+            nickname: KasperSettings.localNickname
++            nickname: KasperSettings.localNickname,
++            profileTab: KasperSettings.profileTab,
++            legacyGlass: KasperSettings.legacyGlass,
++            watermarkVideoNotes: KasperSettings.watermarkVideoNotes
 +        )
 +    }
 +}
@@ -324,6 +455,7 @@ index 0000000..362f524
 +    let updateVoice: (KasperVoice) -> Void
 +    let updateVoiceInCalls: (Bool) -> Void
 +    let updateNickname: (String) -> Void
++    let updateInterface: (KasperInterfaceOption, Bool) -> Void
 +
 +    init(
 +        updateGhost: @escaping (Bool) -> Void,
@@ -335,7 +467,8 @@ index 0000000..362f524
 +        updateKeepDeletedInGroups: @escaping (Bool) -> Void,
 +        updateVoice: @escaping (KasperVoice) -> Void,
 +        updateVoiceInCalls: @escaping (Bool) -> Void,
-+        updateNickname: @escaping (String) -> Void
++        updateNickname: @escaping (String) -> Void,
++        updateInterface: @escaping (KasperInterfaceOption, Bool) -> Void
 +    ) {
 +        self.updateGhost = updateGhost
 +        self.updateHideOnline = updateHideOnline
@@ -347,10 +480,17 @@ index 0000000..362f524
 +        self.updateVoice = updateVoice
 +        self.updateVoiceInCalls = updateVoiceInCalls
 +        self.updateNickname = updateNickname
++        self.updateInterface = updateInterface
 +    }
 +}
 +
 +// MARK: - Строки списка
++
++private enum KasperInterfaceOption {
++    case profileTab
++    case legacyGlass
++    case watermarkVideoNotes
++}
 +
 +private enum KasperSettingsSection: Int32 {
 +    case ghost
@@ -359,6 +499,7 @@ index 0000000..362f524
 +    case voice
 +    case nickname
 +    case profile
++    case interface
 +    case about
 +}
 +
@@ -391,6 +532,12 @@ index 0000000..362f524
 +    case profileHeader
 +    case profileFooter
 +
++    case interfaceHeader
++    case interfaceProfileTab(Bool)
++    case interfaceLegacyGlass(Bool)
++    case interfaceWatermark(Bool)
++    case interfaceFooter
++
 +    case about
 +
 +    var section: ItemListSectionId {
@@ -407,6 +554,8 @@ index 0000000..362f524
 +            return KasperSettingsSection.nickname.rawValue
 +        case .profileHeader, .profileFooter:
 +            return KasperSettingsSection.profile.rawValue
++        case .interfaceHeader, .interfaceProfileTab, .interfaceLegacyGlass, .interfaceWatermark, .interfaceFooter:
++            return KasperSettingsSection.interface.rawValue
 +        case .about:
 +            return KasperSettingsSection.about.rawValue
 +        }
@@ -458,8 +607,18 @@ index 0000000..362f524
 +            return 35
 +        case .profileFooter:
 +            return 36
++        case .interfaceHeader:
++            return 41
++        case .interfaceProfileTab:
++            return 42
++        case .interfaceLegacyGlass:
++            return 43
++        case .interfaceWatermark:
++            return 44
++        case .interfaceFooter:
++            return 45
 +        case .about:
-+            return 40
++            return 60
 +        }
 +    }
 +
@@ -535,6 +694,22 @@ index 0000000..362f524
 +            return ItemListSectionHeaderItem(presentationData: presentationData, text: "🆔 ID И ДАТА СОЗДАНИЯ", sectionId: self.section)
 +        case .profileFooter:
 +            return ItemListTextItem(presentationData: presentationData, text: .plain("На странице любого профиля, канала и группы Kasper показывает их ID — нажмите на строку, чтобы скопировать. У пользователей и ботов рядом появляется строка «Создан».\n\nТочной даты регистрации в Telegram узнать нельзя: такого поля в API нет. Kasper считает её сам, на телефоне, по тому, что ID выдаются по возрастанию. Поэтому это всегда оценка: где данных больше — показывается месяц, где меньше — «± несколько месяцев» или промежуток из нескольких лет. Включать и выключать это не нужно, оно работает всегда."), sectionId: self.section)
++        case .interfaceHeader:
++            return ItemListSectionHeaderItem(presentationData: presentationData, text: "🎨 ИНТЕРФЕЙС", sectionId: self.section)
++        case let .interfaceProfileTab(value):
++            return ItemListSwitchItem(presentationData: presentationData, systemStyle: .glass, title: "Вкладка «Профиль»", value: value, sectionId: self.section, style: .blocks, updated: { value in
++                arguments.updateInterface(.profileTab, value)
++            })
++        case let .interfaceLegacyGlass(value):
++            return ItemListSwitchItem(presentationData: presentationData, systemStyle: .glass, title: "Стекло как на старых iOS", value: value, sectionId: self.section, style: .blocks, updated: { value in
++                arguments.updateInterface(.legacyGlass, value)
++            })
++        case let .interfaceWatermark(value):
++            return ItemListSwitchItem(presentationData: presentationData, systemStyle: .glass, title: "Надпись Kasper на кружках", value: value, sectionId: self.section, style: .blocks, updated: { value in
++                arguments.updateInterface(.watermarkVideoNotes, value)
++            })
++        case .interfaceFooter:
++            return ItemListTextItem(presentationData: presentationData, text: .markdown("**Вкладка «Профиль»** появляется в нижней панели сразу.\n\n**Стекло как на старых iOS** заменяет Liquid Glass на стекло Telegram для iOS 18 и ниже. Работает только на iOS 26 и новее, включается после перезапуска Kasper.\n\n**Надпись Kasper** добавляется к кружкам, которые вы сохраняете в галерею.\n\nВсегда включено: зелёная точка «в сети» у аватарки в чате, файлы .wav показываются как треки. Скругление сообщений уже есть в Telegram: **Настройки → Оформление**, пункт про углы сообщений."), sectionId: self.section)
 +        case .about:
 +            return ItemListTextItem(presentationData: presentationData, text: .plain("Kasper — неофициальный клиент на открытом коде Telegram. Работает через официальный API и серверы Telegram. Все настройки этого раздела хранятся только на этом устройстве."), sectionId: self.section)
 +        }
@@ -577,6 +752,12 @@ index 0000000..362f524
 +
 +    entries.append(.profileHeader)
 +    entries.append(.profileFooter)
++
++    entries.append(.interfaceHeader)
++    entries.append(.interfaceProfileTab(state.profileTab))
++    entries.append(.interfaceLegacyGlass(state.legacyGlass))
++    entries.append(.interfaceWatermark(state.watermarkVideoNotes))
++    entries.append(.interfaceFooter)
 +
 +    entries.append(.about)
 +
@@ -675,6 +856,28 @@ index 0000000..362f524
 +            updateState { state in
 +                var state = state
 +                state.nickname = value
++                return state
++            }
++        },
++        updateInterface: { option, value in
++            switch option {
++            case .profileTab:
++                KasperSettings.profileTab = value
++            case .legacyGlass:
++                KasperSettings.legacyGlass = value
++            case .watermarkVideoNotes:
++                KasperSettings.watermarkVideoNotes = value
++            }
++            updateState { state in
++                var state = state
++                switch option {
++                case .profileTab:
++                    state.profileTab = value
++                case .legacyGlass:
++                    state.legacyGlass = value
++                case .watermarkVideoNotes:
++                    state.watermarkVideoNotes = value
++                }
 +                return state
 +            }
 +        }
@@ -865,10 +1068,10 @@ index 0000000..4ee5776
 +}
 diff --git a/submodules/TelegramCore/Sources/Kasper/KasperSettings.swift b/submodules/TelegramCore/Sources/Kasper/KasperSettings.swift
 new file mode 100644
-index 0000000..6d1166c
+index 0000000..3710764
 --- /dev/null
 +++ b/submodules/TelegramCore/Sources/Kasper/KasperSettings.swift
-@@ -0,0 +1,309 @@
+@@ -0,0 +1,351 @@
 +import Foundation
 +import Postbox
 +import SwiftSignalKit
@@ -892,6 +1095,9 @@ index 0000000..6d1166c
 +        static let localNickname = "kasper.localNickname"
 +        static let voice = "kasper.voice"
 +        static let voiceInCalls = "kasper.voice.calls"
++        static let profileTab = "kasper.ui.profileTab"
++        static let legacyGlass = "kasper.ui.legacyGlass"
++        static let watermarkVideoNotes = "kasper.ui.watermarkVideoNotes"
 +    }
 +
 +    /// Пометка, которая дописывается к сохранённому удалённому сообщению.
@@ -973,6 +1179,33 @@ index 0000000..6d1166c
 +    public static var voiceInCalls: Bool {
 +        get { return flag(Key.voiceInCalls, default: false) }
 +        set { defaults.set(newValue, forKey: Key.voiceInCalls) }
++    }
++
++    // MARK: - Интерфейс
++
++    /// Сообщение для главного экрана: набор вкладок внизу изменился.
++    public static let tabsChangedNotification = Notification.Name("kasper.tabs.changed")
++
++    /// Отдельная вкладка «Профиль» в нижней панели.
++    public static var profileTab: Bool {
++        get { return flag(Key.profileTab, default: false) }
++        set {
++            defaults.set(newValue, forKey: Key.profileTab)
++            NotificationCenter.default.post(name: tabsChangedNotification, object: nil)
++        }
++    }
++
++    /// Стекло Telegram для старых iOS вместо Liquid Glass (имеет смысл на iOS 26 и новее).
++    /// Применяется после перезапуска приложения.
++    public static var legacyGlass: Bool {
++        get { return flag(Key.legacyGlass, default: false) }
++        set { defaults.set(newValue, forKey: Key.legacyGlass) }
++    }
++
++    /// Надпись «Kasper» на кружках, которые сохраняются в галерею.
++    public static var watermarkVideoNotes: Bool {
++        get { return flag(Key.watermarkVideoNotes, default: true) }
++        set { defaults.set(newValue, forKey: Key.watermarkVideoNotes) }
 +    }
 +
 +    /// Локальный ник: виден только в Kasper и не меняет настоящий username.
@@ -1178,6 +1411,18 @@ index 0000000..6d1166c
 +        }
 +    }
 +}
++
++/// Kasper: файл в формате WAV (по типу или по расширению имени).
++func kasperIsWavFile(mimeType: String?, fileName: String?) -> Bool {
++    let type = (mimeType ?? "").lowercased()
++    if type == "audio/wav" || type == "audio/x-wav" || type == "audio/wave" || type == "audio/vnd.wave" {
++        return true
++    }
++    if let fileName = fileName, fileName.lowercased().hasSuffix(".wav") {
++        return true
++    }
++    return false
++}
 diff --git a/submodules/TelegramCore/Sources/State/AccountStateManagementUtils.swift b/submodules/TelegramCore/Sources/State/AccountStateManagementUtils.swift
 index 58db6c7..9ea5987 100644
 --- a/submodules/TelegramCore/Sources/State/AccountStateManagementUtils.swift
@@ -1298,6 +1543,59 @@ index 6624257..23bb4cb 100644
      if peerId.namespace == Namespaces.Peer.SecretChat {
          return inputSecretChat(postbox: postbox, peerId: peerId)
          |> mapToSignal { inputPeer -> Signal<PeerReadState, PeerReadStateValidationError> in
+diff --git a/submodules/TelegramCore/Sources/SyncCore/SyncCore_TelegramMediaFile.swift b/submodules/TelegramCore/Sources/SyncCore/SyncCore_TelegramMediaFile.swift
+index ad6480a..5b547fb 100644
+--- a/submodules/TelegramCore/Sources/SyncCore/SyncCore_TelegramMediaFile.swift
++++ b/submodules/TelegramCore/Sources/SyncCore/SyncCore_TelegramMediaFile.swift
+@@ -1174,14 +1174,22 @@ public final class TelegramMediaFile: Media, Equatable, Codable {
+     
+     public var isMusic: Bool {
+         var hasNonVoiceAudio = false
++        var hasAudio = false
+         var hasVideo = false
+         for attribute in self.attributes {
+-            if case .Audio(false, _, _, _, _) = attribute {
+-                hasNonVoiceAudio = true
++            if case let .Audio(isVoice, _, _, _, _) = attribute {
++                hasAudio = true
++                if !isVoice {
++                    hasNonVoiceAudio = true
++                }
+             } else if case .Video = attribute {
+                 hasVideo = true
+             }
+         }
++        if !hasAudio && !hasVideo && kasperIsWavFile(mimeType: self.mimeType, fileName: self.fileName) {
++            // Kasper: файлы .wav отправляются документом, но показываем их как трек
++            return true
++        }
+         return hasNonVoiceAudio && !hasVideo
+     }
+     
+@@ -1705,11 +1713,13 @@ public extension TelegramMediaFile.Accessor {
+         }
+         
+         var hasNonVoiceAudio = false
++        var hasAudio = false
+         var hasVideo = false
+         
+         for i in 0 ..< self._wrapped!.attributesCount {
+             let attribute = self._wrapped!.attributes(at: i)!
+             if attribute.valueType == .telegrammediafileattributeAudio {
++                hasAudio = true
+                 if let value = attribute.value(type: TelegramCore_TelegramMediaFileAttribute_Audio.self) {
+                     if !value.isVoice {
+                         hasNonVoiceAudio = true
+@@ -1719,6 +1729,9 @@ public extension TelegramMediaFile.Accessor {
+                 hasVideo = true
+             }
+         }
++        if !hasAudio && !hasVideo && kasperIsWavFile(mimeType: self._wrapped!.mimeType, fileName: self.fileName) {
++            return true
++        }
+         return hasNonVoiceAudio && !hasVideo
+     }
+     
 diff --git a/submodules/TelegramCore/Sources/TelegramEngine/Messages/ApplyMaxReadIndexInteractively.swift b/submodules/TelegramCore/Sources/TelegramEngine/Messages/ApplyMaxReadIndexInteractively.swift
 index ba4fea3..88567c3 100644
 --- a/submodules/TelegramCore/Sources/TelegramEngine/Messages/ApplyMaxReadIndexInteractively.swift
@@ -1351,6 +1649,118 @@ index 5f3ee4c..d899a39 100644
      return account.postbox.transaction { transaction -> [EphemeralDeleteMessageRequest] in
          var ephemeralRequests: [EphemeralDeleteMessageRequest] = []
          for messageId in messageIds where messageId.namespace == Namespaces.Message.EphemeralLocal {
+diff --git a/submodules/TelegramUI/Components/Chat/ChatAvatarNavigationNode/Sources/ChatAvatarNavigationNode.swift b/submodules/TelegramUI/Components/Chat/ChatAvatarNavigationNode/Sources/ChatAvatarNavigationNode.swift
+index 533d492..6d4bc29 100644
+--- a/submodules/TelegramUI/Components/Chat/ChatAvatarNavigationNode/Sources/ChatAvatarNavigationNode.swift
++++ b/submodules/TelegramUI/Components/Chat/ChatAvatarNavigationNode/Sources/ChatAvatarNavigationNode.swift
+@@ -40,6 +40,12 @@ public final class ChatAvatarNavigationNode: ASDisplayNode {
+     private var communityAvatarBadgeIconView: GlassBackgroundView.ContentImageView?
+     
+     private var cachedDataDisposable = MetaDisposable()
++    
++    // Kasper: зелёная точка «в сети» у аватарки собеседника
++    private let kasperPresenceDisposable = MetaDisposable()
++    private var kasperPresencePeerId: EnginePeer.Id?
++    private var kasperOnlineView: UIView?
++    private var kasperOnlineBorderColor: UIColor = .white
+     private var hierarchyTrackingLayer: HierarchyTrackingLayer?
+     
+     private var trackingIsInHierarchy: Bool = false {
+@@ -85,6 +91,7 @@ public final class ChatAvatarNavigationNode: ASDisplayNode {
+     
+     deinit {
+         self.cachedDataDisposable.dispose()
++        self.kasperPresenceDisposable.dispose()
+     }
+     
+     override public func didLoad() {
+@@ -116,6 +123,7 @@ public final class ChatAvatarNavigationNode: ASDisplayNode {
+         
+         self.avatarNode.isHidden = true
+         self.communityAvatarBadgeBackgroundView?.isHidden = true
++        self.kasperTrackPresence(context: context, peerId: nil)
+     }
+     
+     public func setPeer(
+@@ -224,6 +232,14 @@ public final class ChatAvatarNavigationNode: ASDisplayNode {
+             self.containerNode.view.bringSubviewToFront(communityAvatarBadgeBackgroundView)
+         }
+         
++        self.kasperOnlineBorderColor = theme.rootController.navigationBar.opaqueBackgroundColor
++        self.kasperOnlineView?.layer.borderColor = self.kasperOnlineBorderColor.cgColor
++        var kasperPeerId: EnginePeer.Id?
++        if let peer, case let .user(user) = peer, user.botInfo == nil, peer.id != context.account.peerId {
++            kasperPeerId = peer.id
++        }
++        self.kasperTrackPresence(context: context, peerId: kasperPeerId)
++        
+         if let peer = peer, peer.isPremium {
+             self.cachedDataDisposable.set((context.account.postbox.peerView(id: peer.id)
+             |> deliverOnMainQueue).start(next: { [weak self] peerView in
+@@ -398,6 +414,63 @@ public final class ChatAvatarNavigationNode: ASDisplayNode {
+         }
+     }
+     
++    private func kasperTrackPresence(context: AccountContext, peerId: EnginePeer.Id?) {
++        if self.kasperPresencePeerId == peerId {
++            return
++        }
++        self.kasperPresencePeerId = peerId
++        guard let peerId else {
++            self.kasperPresenceDisposable.set(nil)
++            self.kasperSetOnline(false)
++            return
++        }
++        let isOnline: Signal<Bool, NoError> = context.engine.data.subscribe(TelegramEngine.EngineData.Item.Peer.Presence(id: peerId))
++        |> mapToSignal { presence -> Signal<Bool, NoError> in
++            guard let presence, case let .present(until) = presence.status else {
++                return .single(false)
++            }
++            let now = Int32(Date().timeIntervalSince1970)
++            if until <= now {
++                return .single(false)
++            }
++            // точка гаснет сама, когда закончится срок «в сети»
++            let remaining = Double(min(until - now, 86400))
++            let goesOffline: Signal<Bool, NoError> = Signal<Bool, NoError>.single(false)
++            |> delay(remaining, queue: Queue.mainQueue())
++            return Signal<Bool, NoError>.single(true)
++            |> then(goesOffline)
++        }
++        |> distinctUntilChanged
++        |> deliverOnMainQueue
++        self.kasperPresenceDisposable.set(isOnline.start(next: { [weak self] value in
++            self?.kasperSetOnline(value)
++        }))
++    }
++    
++    private func kasperSetOnline(_ isOnline: Bool) {
++        guard isOnline else {
++            self.kasperOnlineView?.isHidden = true
++            return
++        }
++        let onlineView: UIView
++        if let current = self.kasperOnlineView {
++            onlineView = current
++        } else {
++            onlineView = UIView()
++            onlineView.isUserInteractionEnabled = false
++            onlineView.backgroundColor = UIColor(rgb: 0x34c759)
++            onlineView.layer.borderWidth = 2.0
++            self.kasperOnlineView = onlineView
++            self.containerNode.view.addSubview(onlineView)
++        }
++        let size: CGFloat = 13.0
++        onlineView.frame = CGRect(x: self.containerNode.bounds.width - size - 2.0, y: self.containerNode.bounds.height - size - 2.0, width: size, height: size)
++        onlineView.layer.cornerRadius = size * 0.5
++        onlineView.layer.borderColor = self.kasperOnlineBorderColor.cgColor
++        onlineView.isHidden = false
++        self.containerNode.view.bringSubviewToFront(onlineView)
++    }
++    
+     private func updateVideoVisibility() {
+         let isVisible = self.trackingIsInHierarchy
+         self.avatarVideoNode?.updateVisibility(isVisible)
 diff --git a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoProfileItems.swift b/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoProfileItems.swift
 index 80b7f20..bbc66b3 100644
 --- a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoProfileItems.swift
@@ -1476,7 +1886,7 @@ index 80b7f20..bbc66b3 100644
              let aboutText: String?
              if group.isFake {
 diff --git a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoScreen.swift b/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoScreen.swift
-index fd01930..3f2cf65 100644
+index fd01930..40b654e 100644
 --- a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoScreen.swift
 +++ b/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoScreen.swift
 @@ -153,6 +153,7 @@ enum PeerInfoContextSubject {
@@ -1487,6 +1897,27 @@ index fd01930..3f2cf65 100644
      case avatar
      case edit
      case proxy
+@@ -6728,8 +6729,20 @@ public final class PeerInfoScreenImpl: ViewController, PeerInfoScreen, KeyShortc
+                 return (presentationData.strings.Settings_Title, accountTabBarAvatar?.0 ?? icon, accountTabBarAvatar?.1 ?? icon, notificationsWarning || phoneNumberWarning || passwordWarning ? "!" : otherAccountsBadge, accountTabBarAvatar != nil, presentationData.reduceMotion)
+             }
+             
++            let kasperIsProfileTab = isMyProfile && !isSettings
+             self.tabBarItemDisposable = (tabBarItem |> deliverOnMainQueue).startStrict(next: { [weak self] title, image, selectedImage, badgeValue, isAvatar, reduceMotion in
+                 if let strongSelf = self {
++                    if kasperIsProfileTab {
++                        // Kasper: вкладка «Профиль» — своя подпись и значок, без значков-предупреждений настроек
++                        let profileIcon = UIImage(systemName: "person.crop.circle", withConfiguration: UIImage.SymbolConfiguration(pointSize: 23.0, weight: .regular))
++                        strongSelf.tabBarItem.title = "Профиль"
++                        strongSelf.tabBarItem.image = profileIcon ?? image
++                        strongSelf.tabBarItem.selectedImage = profileIcon ?? selectedImage
++                        strongSelf.tabBarItem.animationName = nil
++                        strongSelf.tabBarItem.ringSelection = false
++                        strongSelf.tabBarItem.badgeValue = nil
++                        return
++                    }
+                     strongSelf.tabBarItem.title = title
+                     strongSelf.tabBarItem.image = image
+                     strongSelf.tabBarItem.selectedImage = selectedImage
 diff --git a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoScreenSettingsActions.swift b/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoScreenSettingsActions.swift
 index 806e652..a0ca35e 100644
 --- a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoScreenSettingsActions.swift
@@ -1723,6 +2154,129 @@ index feca4e4..45d8846 100644
                  self.processWaveformPreview(samples: currentEncoderPacket.assumingMemoryBound(to: Int16.self), count: currentEncoderPacketSize / 2)
                  
                  self.oggWriter.writeFrame(currentEncoderPacket.assumingMemoryBound(to: UInt8.self), frameByteCount: UInt(currentEncoderPacketSize))
+diff --git a/submodules/TelegramUI/Sources/SharedAccountContext.swift b/submodules/TelegramUI/Sources/SharedAccountContext.swift
+index 5637c9e..afe6563 100644
+--- a/submodules/TelegramUI/Sources/SharedAccountContext.swift
++++ b/submodules/TelegramUI/Sources/SharedAccountContext.swift
+@@ -518,7 +518,7 @@ public final class SharedAccountContextImpl: SharedAccountContext {
+         let immediateExperimentalUISettingsValue = self.immediateExperimentalUISettingsValue
+         let _ = immediateExperimentalUISettingsValue.swap(initialPresentationDataAndSettings.experimentalUISettings)
+         
+-        GlassBackgroundView.useCustomGlassImpl = immediateExperimentalUISettingsValue.with({ $0.fakeGlass })
++        GlassBackgroundView.useCustomGlassImpl = immediateExperimentalUISettingsValue.with({ $0.fakeGlass }) || KasperSettings.legacyGlass
+         
+         self.experimentalUISettingsDisposable = (self.accountManager.sharedData(keys: [ApplicationSpecificSharedDataKeys.experimentalUISettings])
+         |> deliverOnMainQueue).start(next: { sharedData in
+@@ -526,7 +526,7 @@ public final class SharedAccountContextImpl: SharedAccountContext {
+                 let _ = immediateExperimentalUISettingsValue.swap(settings)
+                 
+                 flatBuffers_checkedGet = settings.checkSerializedData
+-                GlassBackgroundView.useCustomGlassImpl = settings.fakeGlass
++                GlassBackgroundView.useCustomGlassImpl = settings.fakeGlass || KasperSettings.legacyGlass
+             }
+         })
+         
+diff --git a/submodules/TelegramUI/Sources/TelegramRootController.swift b/submodules/TelegramUI/Sources/TelegramRootController.swift
+index c5ea211..04f1b78 100644
+--- a/submodules/TelegramUI/Sources/TelegramRootController.swift
++++ b/submodules/TelegramUI/Sources/TelegramRootController.swift
+@@ -80,6 +80,11 @@ public final class TelegramRootController: NavigationController, TelegramRootCon
+     public var chatListController: ChatListController?
+     public var accountSettingsController: PeerInfoScreen?
+     
++    // Kasper: отдельная вкладка «Профиль»
++    private var kasperProfileController: ViewController?
++    private var kasperShowCallsTab: Bool = true
++    private var kasperTabsObserver: NSObjectProtocol?
++    
+     private var permissionsDisposable: Disposable?
+     private var presentationDataDisposable: Disposable?
+     private var presentationData: PresentationData
+@@ -146,6 +151,9 @@ public final class TelegramRootController: NavigationController, TelegramRootCon
+         self.presentationDataDisposable?.dispose()
+         self.applicationInFocusDisposable?.dispose()
+         self.storyUploadEventsDisposable?.dispose()
++        if let kasperTabsObserver = self.kasperTabsObserver {
++            NotificationCenter.default.removeObserver(kasperTabsObserver)
++        }
+     }
+     
+     public func getContactsController() -> ViewController? {
+@@ -237,9 +245,23 @@ public final class TelegramRootController: NavigationController, TelegramRootCon
+             strongSelf.pushViewController(debugController(sharedContext: strongSelf.context.sharedContext, context: strongSelf.context))
+         }
+         accountSettingsController.parentController = self
++        if let kasperProfileController = self.kasperMakeProfileTabController() {
++            controllers.append(kasperProfileController)
++        }
+         controllers.append(accountSettingsController)
+-                
+-        tabBarController.setControllers(controllers, selectedIndex: restoreSettignsController != nil ? (controllers.count - 1) : (controllers.count - 2))
++        
++        self.kasperShowCallsTab = showCallsTab
++        if self.kasperTabsObserver == nil {
++            self.kasperTabsObserver = NotificationCenter.default.addObserver(forName: KasperSettings.tabsChangedNotification, object: nil, queue: OperationQueue.main, using: { [weak self] _ in
++                guard let self else {
++                    return
++                }
++                self.updateRootControllers(showCallsTab: self.kasperShowCallsTab)
++            })
++        }
++        
++        let kasperChatsIndex = controllers.firstIndex(where: { $0 === chatListController }) ?? (controllers.count - 2)
++        tabBarController.setControllers(controllers, selectedIndex: restoreSettignsController != nil ? (controllers.count - 1) : kasperChatsIndex)
+         
+         self.contactsController = contactsController
+         self.callListController = callListController
+@@ -259,11 +281,30 @@ public final class TelegramRootController: NavigationController, TelegramRootCon
+             controllers.append(self.callListController!)
+         }
+         controllers.append(self.chatListController!)
++        self.kasperShowCallsTab = showCallsTab
++        if let kasperProfileController = self.kasperMakeProfileTabController() {
++            controllers.append(kasperProfileController)
++        } else {
++            self.kasperProfileController = nil
++        }
+         controllers.append(self.accountSettingsController!)
+         
+         rootTabController.setControllers(controllers, selectedIndex: nil)
+     }
+     
++    private func kasperMakeProfileTabController() -> ViewController? {
++        guard KasperSettings.profileTab else {
++            return nil
++        }
++        if let current = self.kasperProfileController {
++            return current
++        }
++        let controller = PeerInfoScreenImpl(context: self.context, updatedPresentationData: nil, peerId: self.context.account.peerId, avatarInitiallyExpanded: false, isOpenedFromChat: false, reactionSourceMessageId: nil, callMessages: [], isMyProfile: true)
++        controller.parentController = self
++        self.kasperProfileController = controller
++        return controller
++    }
++    
+     public func openChatsController(activateSearch: Bool, filter: ChatListSearchFilter = .chats, query: String? = nil) {
+         guard let rootTabController = self.rootTabController else {
+             return
+@@ -301,7 +342,7 @@ public final class TelegramRootController: NavigationController, TelegramRootCon
+         
+         self.popToRoot(animated: false)
+         
+-        if let index = rootTabController.controllers.firstIndex(where: { $0 is PeerInfoScreenImpl }) {
++        if let index = rootTabController.controllers.firstIndex(where: { $0 is PeerInfoScreenImpl && $0 !== self.kasperProfileController }) {
+             rootTabController.selectedIndex = index
+         }
+         
+@@ -813,7 +854,7 @@ public final class TelegramRootController: NavigationController, TelegramRootCon
+         
+         self.popToRoot(animated: false)
+     
+-        if let index = rootTabController.controllers.firstIndex(where: { $0 is PeerInfoScreenImpl }) {
++        if let index = rootTabController.controllers.firstIndex(where: { $0 is PeerInfoScreenImpl && $0 !== self.kasperProfileController }) {
+             rootTabController.selectedIndex = index
+         }
+         
 diff --git a/submodules/TgVoipWebrtc/Sources/KasperCallVoice.h b/submodules/TgVoipWebrtc/Sources/KasperCallVoice.h
 new file mode 100644
 index 0000000..518d0be
