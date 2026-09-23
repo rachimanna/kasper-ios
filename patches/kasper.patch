@@ -611,10 +611,10 @@ index 2f8b30b..704f26a 100644
 +}
 diff --git a/submodules/SettingsUI/Sources/Kasper/KasperSettingsController.swift b/submodules/SettingsUI/Sources/Kasper/KasperSettingsController.swift
 new file mode 100644
-index 0000000..b54b6c2
+index 0000000..569e563
 --- /dev/null
 +++ b/submodules/SettingsUI/Sources/Kasper/KasperSettingsController.swift
-@@ -0,0 +1,490 @@
+@@ -0,0 +1,714 @@
 +import Foundation
 +import UIKit
 +import Display
@@ -634,6 +634,12 @@ index 0000000..b54b6c2
 +    case deleted
 +}
 +
++private enum KasperVoicesStatus: Equatable {
++    case idle
++    case loading
++    case error(String)
++}
++
 +private struct KasperSettingsState: Equatable {
 +    var hideOnline: Bool
 +    var hideReadReceipts: Bool
@@ -644,6 +650,14 @@ index 0000000..b54b6c2
 +    var deletedCaught: Int
 +    var voice: KasperVoice
 +    var voiceInCalls: Bool
++    var elevenLabsEnabled: Bool
++    var elevenLabsApiKey: String
++    var elevenLabsVoiceId: String
++    var elevenLabsVoiceName: String
++    var elevenLabsRemoveNoise: Bool
++    var elevenLabsLastError: String
++    var elevenLabsVoices: [KasperElevenLabsVoice]
++    var elevenLabsStatus: KasperVoicesStatus
 +    var nickname: String
 +    var profileTab: Bool
 +    var legacyGlass: Bool
@@ -674,6 +688,14 @@ index 0000000..b54b6c2
 +            deletedCaught: KasperSettings.deletedCaught,
 +            voice: KasperSettings.voice,
 +            voiceInCalls: KasperSettings.voiceInCalls,
++            elevenLabsEnabled: KasperSettings.elevenLabsEnabled,
++            elevenLabsApiKey: KasperSettings.elevenLabsApiKey,
++            elevenLabsVoiceId: KasperSettings.elevenLabsVoiceId,
++            elevenLabsVoiceName: KasperSettings.elevenLabsVoiceName,
++            elevenLabsRemoveNoise: KasperSettings.elevenLabsRemoveNoise,
++            elevenLabsLastError: KasperSettings.elevenLabsLastError,
++            elevenLabsVoices: [],
++            elevenLabsStatus: .idle,
 +            nickname: KasperSettings.localNickname,
 +            profileTab: KasperSettings.profileTab,
 +            legacyGlass: KasperSettings.legacyGlass,
@@ -708,6 +730,11 @@ index 0000000..b54b6c2
 +    let updateKeepDeletedInGroups: (Bool) -> Void
 +    let updateVoice: (KasperVoice) -> Void
 +    let updateVoiceInCalls: (Bool) -> Void
++    let updateElevenLabsEnabled: (Bool) -> Void
++    let updateElevenLabsApiKey: (String) -> Void
++    let selectElevenLabsVoice: (KasperElevenLabsVoice) -> Void
++    let reloadElevenLabsVoices: () -> Void
++    let updateElevenLabsRemoveNoise: (Bool) -> Void
 +    let updateNickname: (String) -> Void
 +    let updateInterface: (KasperInterfaceOption, Bool) -> Void
 +    let updateAllInterface: (Bool) -> Void
@@ -720,6 +747,11 @@ index 0000000..b54b6c2
 +        updateKeepDeletedInGroups: @escaping (Bool) -> Void,
 +        updateVoice: @escaping (KasperVoice) -> Void,
 +        updateVoiceInCalls: @escaping (Bool) -> Void,
++        updateElevenLabsEnabled: @escaping (Bool) -> Void,
++        updateElevenLabsApiKey: @escaping (String) -> Void,
++        selectElevenLabsVoice: @escaping (KasperElevenLabsVoice) -> Void,
++        reloadElevenLabsVoices: @escaping () -> Void,
++        updateElevenLabsRemoveNoise: @escaping (Bool) -> Void,
 +        updateNickname: @escaping (String) -> Void,
 +        updateInterface: @escaping (KasperInterfaceOption, Bool) -> Void,
 +        updateAllInterface: @escaping (Bool) -> Void
@@ -731,6 +763,11 @@ index 0000000..b54b6c2
 +        self.updateKeepDeletedInGroups = updateKeepDeletedInGroups
 +        self.updateVoice = updateVoice
 +        self.updateVoiceInCalls = updateVoiceInCalls
++        self.updateElevenLabsEnabled = updateElevenLabsEnabled
++        self.updateElevenLabsApiKey = updateElevenLabsApiKey
++        self.selectElevenLabsVoice = selectElevenLabsVoice
++        self.reloadElevenLabsVoices = reloadElevenLabsVoices
++        self.updateElevenLabsRemoveNoise = updateElevenLabsRemoveNoise
 +        self.updateNickname = updateNickname
 +        self.updateInterface = updateInterface
 +        self.updateAllInterface = updateAllInterface
@@ -743,6 +780,7 @@ index 0000000..b54b6c2
 +    case ghost
 +    case interface
 +    case voice
++    case elevenLabs
 +    case deleted
 +    case nickname
 +    case profile
@@ -759,6 +797,14 @@ index 0000000..b54b6c2
 +    case voiceSection(KasperSettingsState)
 +    case voiceCalls(Bool)
 +    case voiceFooter
++
++    case elevenLabsSwitch(Bool)
++    case elevenLabsKey(String)
++    case elevenLabsVoice(Int, KasperElevenLabsVoice, Bool)
++    case elevenLabsStatus(String)
++    case elevenLabsReload(Bool)
++    case elevenLabsNoise(Bool)
++    case elevenLabsFooter(String)
 +
 +    case deletedSection(KasperSettingsState)
 +    case deletedCount(Int)
@@ -779,6 +825,8 @@ index 0000000..b54b6c2
 +            return KasperSettingsSection.interface.rawValue
 +        case .voiceSection, .voiceCalls, .voiceFooter:
 +            return KasperSettingsSection.voice.rawValue
++        case .elevenLabsSwitch, .elevenLabsKey, .elevenLabsVoice, .elevenLabsStatus, .elevenLabsReload, .elevenLabsNoise, .elevenLabsFooter:
++            return KasperSettingsSection.elevenLabs.rawValue
 +        case .deletedSection, .deletedCount, .deletedFooter:
 +            return KasperSettingsSection.deleted.rawValue
 +        case .nicknameInput, .nicknameFooter:
@@ -806,6 +854,20 @@ index 0000000..b54b6c2
 +            return 21
 +        case .voiceFooter:
 +            return 22
++        case .elevenLabsSwitch:
++            return 23
++        case .elevenLabsKey:
++            return 24
++        case let .elevenLabsVoice(index, _, _):
++            return 1000 + Int32(index)
++        case .elevenLabsStatus:
++            return 26
++        case .elevenLabsReload:
++            return 27
++        case .elevenLabsNoise:
++            return 28
++        case .elevenLabsFooter:
++            return 29
 +        case .deletedSection:
 +            return 30
 +        case .deletedCount:
@@ -823,8 +885,18 @@ index 0000000..b54b6c2
 +        }
 +    }
 +
++    /// Порядок строк: голоса ElevenLabs идут между полем ключа и кнопкой обновления.
++    private var sortKey: Double {
++        switch self {
++        case let .elevenLabsVoice(index, _, _):
++            return 25.0 + Double(index) / 10000.0
++        default:
++            return Double(self.stableId)
++        }
++    }
++
 +    static func <(lhs: KasperSettingsEntry, rhs: KasperSettingsEntry) -> Bool {
-+        return lhs.stableId < rhs.stableId
++        return lhs.sortKey < rhs.sortKey
 +    }
 +
 +    func item(presentationData: ItemListPresentationData, arguments: Any) -> ListViewItem {
@@ -885,6 +957,33 @@ index 0000000..b54b6c2
 +            })
 +        case .voiceFooter:
 +            return ItemListTextItem(presentationData: presentationData, text: .plain("Голос меняется на телефоне во время записи. Если в звонке пойдут помехи, выключите звонки — звук сразу станет обычным."), sectionId: self.section)
++        case let .elevenLabsSwitch(value):
++            return ItemListSwitchItem(presentationData: presentationData, systemStyle: .glass, title: "✨ Реалистичный голос · ElevenLabs", value: value, sectionId: self.section, style: .blocks, updated: { value in
++                arguments.updateElevenLabsEnabled(value)
++            })
++        case let .elevenLabsKey(value):
++            return ItemListSingleLineInputItem(presentationData: presentationData, systemStyle: .glass, title: NSAttributedString(string: "Ключ", textColor: presentationData.theme.list.itemPrimaryTextColor), text: value, placeholder: "sk_… из elevenlabs.io", type: .password, spacing: 12.0, clearType: .always, sectionId: self.section, textUpdated: { value in
++                arguments.updateElevenLabsApiKey(value)
++            }, processPaste: { text in
++                return text.trimmingCharacters(in: .whitespacesAndNewlines)
++            }, action: {
++            })
++        case let .elevenLabsVoice(_, voice, selected):
++            return ItemListCheckboxItem(presentationData: presentationData, systemStyle: .glass, title: voice.name, subtitle: voice.details.isEmpty ? nil : voice.details, style: .left, checked: selected, zeroSeparatorInsets: false, sectionId: self.section, action: {
++                arguments.selectElevenLabsVoice(voice)
++            })
++        case let .elevenLabsStatus(text):
++            return ItemListDisclosureItem(presentationData: presentationData, systemStyle: .glass, title: text, label: "", sectionId: self.section, style: .blocks, disclosureStyle: .none, action: nil)
++        case let .elevenLabsReload(loaded):
++            return ItemListActionItem(presentationData: presentationData, systemStyle: .glass, title: loaded ? "Обновить список голосов" : "Загрузить голоса", kind: .generic, alignment: .natural, sectionId: self.section, style: .blocks, action: {
++                arguments.reloadElevenLabsVoices()
++            })
++        case let .elevenLabsNoise(value):
++            return ItemListSwitchItem(presentationData: presentationData, systemStyle: .glass, title: "Убирать фоновый шум", value: value, sectionId: self.section, style: .blocks, updated: { value in
++                arguments.updateElevenLabsRemoveNoise(value)
++            })
++        case let .elevenLabsFooter(text):
++            return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section)
 +        case let .deletedSection(state):
 +            let subItems: [ItemListExpandableSwitchItem.SubItem] = [
 +                ItemListExpandableSwitchItem.SubItem(id: "groups", title: "И в группах", isSelected: state.keepDeletedInGroups, isEnabled: state.keepDeleted)
@@ -936,6 +1035,41 @@ index 0000000..b54b6c2
 +        entries.append(.voiceFooter)
 +    }
 +
++    entries.append(.elevenLabsSwitch(state.elevenLabsEnabled))
++    if state.elevenLabsEnabled {
++        entries.append(.elevenLabsKey(state.elevenLabsApiKey))
++        if !state.elevenLabsApiKey.isEmpty {
++            var voices = state.elevenLabsVoices
++            if !state.elevenLabsVoiceId.isEmpty && !voices.contains(where: { $0.id == state.elevenLabsVoiceId }) {
++                // список ещё не загружен — показываем уже выбранный голос
++                voices.insert(KasperElevenLabsVoice(id: state.elevenLabsVoiceId, name: state.elevenLabsVoiceName.isEmpty ? state.elevenLabsVoiceId : state.elevenLabsVoiceName, details: "выбран"), at: 0)
++            }
++            for (index, voice) in voices.enumerated() {
++                entries.append(.elevenLabsVoice(index, voice, voice.id == state.elevenLabsVoiceId))
++            }
++            switch state.elevenLabsStatus {
++            case .loading:
++                entries.append(.elevenLabsStatus("Загружаю голоса…"))
++            case let .error(text):
++                entries.append(.elevenLabsStatus("⚠️ \(text)"))
++            case .idle:
++                break
++            }
++            entries.append(.elevenLabsReload(!state.elevenLabsVoices.isEmpty))
++            entries.append(.elevenLabsNoise(state.elevenLabsRemoveNoise))
++        }
++        var footer = "Голосовое записывается как обычно, а после остановки ElevenLabs переозвучивает его выбранным голосом с вашими интонациями — это занимает пару секунд. Работает для голосовых сообщений; в звонках и кружках остаётся локальный эффект. Тратит кредиты ElevenLabs (примерно 1000 в минуту записи). Если ElevenLabs недоступен, настоящий голос не уйдёт: применится локальный эффект."
++        if state.elevenLabsApiKey.isEmpty {
++            footer = "Вставьте API-ключ с elevenlabs.io → Developers → API Keys (права: Voices — чтение и Speech to Speech). " + footer
++        } else if state.elevenLabsVoiceId.isEmpty {
++            footer = "Выберите голос. Свои голоса и голоса из библиотеки ElevenLabs, добавленные в «My Voices», тоже появятся здесь. " + footer
++        }
++        if !state.elevenLabsLastError.isEmpty {
++            footer = "⚠️ Последняя запись: \(state.elevenLabsLastError)\n\n" + footer
++        }
++        entries.append(.elevenLabsFooter(footer))
++    }
++
 +    entries.append(.deletedSection(state))
 +    if state.isExpanded(.deleted) {
 +        entries.append(.deletedCount(state.deletedCaught))
@@ -960,6 +1094,46 @@ index 0000000..b54b6c2
 +    let stateValue = Atomic(value: initialState)
 +    let updateState: ((KasperSettingsState) -> KasperSettingsState) -> Void = { f in
 +        statePromise.set(stateValue.modify { f($0) })
++    }
++
++    let voicesDisposable = MetaDisposable()
++    let keyDebounceDisposable = MetaDisposable()
++    let loadElevenLabsVoices: () -> Void = {
++        let key = KasperSettings.elevenLabsApiKey
++        guard !key.isEmpty else {
++            voicesDisposable.set(nil)
++            updateState { state in
++                var state = state
++                state.elevenLabsVoices = []
++                state.elevenLabsStatus = .idle
++                return state
++            }
++            return
++        }
++        updateState { state in
++            var state = state
++            state.elevenLabsStatus = .loading
++            return state
++        }
++        voicesDisposable.set((KasperElevenLabs.voices(apiKey: key)
++        |> deliverOnMainQueue).start(next: { voices in
++            updateState { state in
++                var state = state
++                state.elevenLabsVoices = voices
++                state.elevenLabsStatus = voices.isEmpty ? .error("На аккаунте нет голосов") : .idle
++                if let current = voices.first(where: { $0.id == state.elevenLabsVoiceId }), current.name != state.elevenLabsVoiceName {
++                    KasperSettings.elevenLabsVoiceName = current.name
++                    state.elevenLabsVoiceName = current.name
++                }
++                return state
++            }
++        }, error: { error in
++            updateState { state in
++                var state = state
++                state.elevenLabsStatus = .error(error.text)
++                return state
++            }
++        }))
 +    }
 +
 +    let arguments = KasperSettingsControllerArguments(
@@ -1044,6 +1218,53 @@ index 0000000..b54b6c2
 +                return state
 +            }
 +        },
++        updateElevenLabsEnabled: { value in
++            KasperSettings.elevenLabsEnabled = value
++            updateState { state in
++                var state = state
++                state.elevenLabsEnabled = value
++                return state
++            }
++            if value && stateValue.with({ $0.elevenLabsVoices.isEmpty }) {
++                loadElevenLabsVoices()
++            }
++        },
++        updateElevenLabsApiKey: { value in
++            KasperSettings.elevenLabsApiKey = value
++            updateState { state in
++                var state = state
++                state.elevenLabsApiKey = value
++                state.elevenLabsLastError = ""
++                return state
++            }
++            KasperSettings.elevenLabsLastError = ""
++            // ждём, пока ключ вставят или допечатают, и только потом спрашиваем ElevenLabs
++            keyDebounceDisposable.set((Signal<Void, NoError>.single(Void())
++            |> delay(0.8, queue: Queue.mainQueue())).start(next: { _ in
++                loadElevenLabsVoices()
++            }))
++        },
++        selectElevenLabsVoice: { voice in
++            KasperSettings.elevenLabsVoiceId = voice.id
++            KasperSettings.elevenLabsVoiceName = voice.name
++            updateState { state in
++                var state = state
++                state.elevenLabsVoiceId = voice.id
++                state.elevenLabsVoiceName = voice.name
++                return state
++            }
++        },
++        reloadElevenLabsVoices: {
++            loadElevenLabsVoices()
++        },
++        updateElevenLabsRemoveNoise: { value in
++            KasperSettings.elevenLabsRemoveNoise = value
++            updateState { state in
++                var state = state
++                state.elevenLabsRemoveNoise = value
++                return state
++            }
++        },
 +        updateNickname: { value in
 +            let cleaned = value.trimmingCharacters(in: .whitespacesAndNewlines)
 +            KasperSettings.localNickname = cleaned
@@ -1103,6 +1324,9 @@ index 0000000..b54b6c2
 +    }
 +
 +    let controller = ItemListController(context: context, state: signal)
++    if initialState.elevenLabsEnabled && !initialState.elevenLabsApiKey.isEmpty {
++        loadElevenLabsVoices()
++    }
 +    return controller
 +}
 diff --git a/submodules/TelegramCore/Sources/Kasper/KasperAccountAge.swift b/submodules/TelegramCore/Sources/Kasper/KasperAccountAge.swift
@@ -1278,12 +1502,241 @@ index 0000000..4ee5776
 +        }
 +    }
 +}
+diff --git a/submodules/TelegramCore/Sources/Kasper/KasperElevenLabs.swift b/submodules/TelegramCore/Sources/Kasper/KasperElevenLabs.swift
+new file mode 100644
+index 0000000..44e9ad7
+--- /dev/null
++++ b/submodules/TelegramCore/Sources/Kasper/KasperElevenLabs.swift
+@@ -0,0 +1,223 @@
++import Foundation
++import SwiftSignalKit
++
++/// Голос из аккаунта ElevenLabs.
++public struct KasperElevenLabsVoice: Equatable {
++    public let id: String
++    public let name: String
++    public let details: String
++
++    public init(id: String, name: String, details: String) {
++        self.id = id
++        self.name = name
++        self.details = details
++    }
++}
++
++public enum KasperElevenLabsError: Error, Equatable {
++    case noKey
++    case network(String)
++    case http(Int, String)
++    case badResponse
++
++    /// Понятное описание для экрана настроек.
++    public var text: String {
++        switch self {
++        case .noKey:
++            return "Не указан API-ключ ElevenLabs"
++        case let .network(message):
++            return "Нет связи с ElevenLabs: \(message)"
++        case let .http(code, message):
++            switch code {
++            case 401:
++                let lower = message.lowercased()
++                if lower.contains("quota") || lower.contains("credits") {
++                    return "На аккаунте ElevenLabs закончились кредиты: \(message)"
++                }
++                if lower.contains("permission") {
++                    return "У ключа ElevenLabs не хватает прав — включите Voices и Speech to Speech: \(message)"
++                }
++                return message.isEmpty ? "Ключ ElevenLabs не подходит (401)" : "ElevenLabs отклонил ключ (401): \(message)"
++            case 402:
++                return "На аккаунте ElevenLabs закончились кредиты (402)"
++            case 429:
++                return "ElevenLabs просит подождать: слишком много запросов (429)"
++            default:
++                return message.isEmpty ? "Ошибка ElevenLabs (\(code))" : "Ошибка ElevenLabs (\(code)): \(message)"
++            }
++        case .badResponse:
++            return "ElevenLabs вернул пустой ответ"
++        }
++    }
++}
++
++/// Клиент ElevenLabs для Kasper: список голосов и Voice Changer (speech-to-speech).
++/// Запросы уходят напрямую с телефона на api.elevenlabs.io с ключом пользователя.
++public enum KasperElevenLabs {
++    /// Многоязычная модель Voice Changer — понимает русскую речь.
++    public static let modelId = "eleven_multilingual_sts_v2"
++    /// Частота, в которой ElevenLabs присылает результат. PCM 24 кГц доступен на всех тарифах
++    /// (44,1 кГц — только с Pro).
++    public static let outputSampleRate = 24000
++
++    private static let baseUrl = "https://api.elevenlabs.io"
++
++    private static let session: URLSession = {
++        let configuration = URLSessionConfiguration.default
++        configuration.timeoutIntervalForRequest = 120.0
++        configuration.timeoutIntervalForResource = 180.0
++        return URLSession(configuration: configuration)
++    }()
++
++    private static func errorMessage(from data: Data?) -> String {
++        guard let data = data, !data.isEmpty else {
++            return ""
++        }
++        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
++            if let detail = json["detail"] as? [String: Any] {
++                if let message = detail["message"] as? String {
++                    return message
++                }
++                if let status = detail["status"] as? String {
++                    return status
++                }
++            }
++            if let detail = json["detail"] as? String {
++                return detail
++            }
++            if let message = json["message"] as? String {
++                return message
++            }
++        }
++        return String(data: data.prefix(200), encoding: .utf8) ?? ""
++    }
++
++    private static func perform(_ request: URLRequest, completion: @escaping (Swift.Result<Data, KasperElevenLabsError>) -> Void) -> URLSessionDataTask {
++        let task = session.dataTask(with: request, completionHandler: { data, response, error in
++            if let error = error {
++                completion(.failure(.network(error.localizedDescription)))
++                return
++            }
++            guard let response = response as? HTTPURLResponse else {
++                completion(.failure(.badResponse))
++                return
++            }
++            guard (200 ..< 300).contains(response.statusCode) else {
++                completion(.failure(.http(response.statusCode, errorMessage(from: data))))
++                return
++            }
++            guard let data = data, !data.isEmpty else {
++                completion(.failure(.badResponse))
++                return
++            }
++            completion(.success(data))
++        })
++        task.resume()
++        return task
++    }
++
++    /// Голоса, доступные на аккаунте: свои, сохранённые из библиотеки и стандартные.
++    public static func voices(apiKey: String) -> Signal<[KasperElevenLabsVoice], KasperElevenLabsError> {
++        return Signal { subscriber in
++            let key = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
++            guard !key.isEmpty else {
++                subscriber.putError(.noKey)
++                return EmptyDisposable
++            }
++            var components = URLComponents(string: baseUrl + "/v2/voices")!
++            components.queryItems = [
++                URLQueryItem(name: "page_size", value: "100"),
++                URLQueryItem(name: "sort", value: "name")
++            ]
++            var request = URLRequest(url: components.url!)
++            request.httpMethod = "GET"
++            request.setValue(key, forHTTPHeaderField: "xi-api-key")
++            request.setValue("application/json", forHTTPHeaderField: "Accept")
++
++            let task = perform(request, completion: { result in
++                switch result {
++                case let .failure(error):
++                    subscriber.putError(error)
++                case let .success(data):
++                    guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any], let items = json["voices"] as? [[String: Any]] else {
++                        subscriber.putError(.badResponse)
++                        return
++                    }
++                    var result: [KasperElevenLabsVoice] = []
++                    for item in items {
++                        guard let id = item["voice_id"] as? String, let name = item["name"] as? String else {
++                            continue
++                        }
++                        var parts: [String] = []
++                        if let labels = item["labels"] as? [String: Any] {
++                            for key in ["gender", "age", "accent"] {
++                                if let value = labels[key] as? String, !value.isEmpty {
++                                    parts.append(value)
++                                }
++                            }
++                        }
++                        result.append(KasperElevenLabsVoice(id: id, name: name, details: parts.joined(separator: ", ")))
++                    }
++                    subscriber.putNext(result)
++                    subscriber.putCompletion()
++                }
++            })
++            return ActionDisposable {
++                task.cancel()
++            }
++        }
++    }
++
++    /// Voice Changer: отправляет запись (WAV) и возвращает тот же текст тем же темпом,
++    /// но выбранным голосом — PCM 16 бит, моно, `outputSampleRate`.
++    public static func changeVoice(wav: Data, voiceId: String, apiKey: String, removeBackgroundNoise: Bool) -> Signal<Data, KasperElevenLabsError> {
++        return Signal { subscriber in
++            let key = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
++            guard !key.isEmpty else {
++                subscriber.putError(.noKey)
++                return EmptyDisposable
++            }
++            let voicePath = voiceId.trimmingCharacters(in: .whitespacesAndNewlines).addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? voiceId
++            var components = URLComponents(string: baseUrl + "/v1/speech-to-speech/" + voicePath)!
++            components.queryItems = [
++                URLQueryItem(name: "output_format", value: "pcm_\(outputSampleRate)")
++            ]
++            var request = URLRequest(url: components.url!)
++            request.httpMethod = "POST"
++            request.setValue(key, forHTTPHeaderField: "xi-api-key")
++
++            let boundary = "KasperBoundary\(UInt64.random(in: 0 ... UInt64.max))"
++            request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
++
++            var body = Data()
++            func appendField(_ name: String, _ value: String) {
++                body.append("--\(boundary)\r\n".data(using: .utf8)!)
++                body.append("Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n".data(using: .utf8)!)
++                body.append("\(value)\r\n".data(using: .utf8)!)
++            }
++            appendField("model_id", modelId)
++            appendField("remove_background_noise", removeBackgroundNoise ? "true" : "false")
++            // Близко к исходнику: сохраняем интонации, но полностью меняем тембр.
++            appendField("voice_settings", "{\"stability\":0.5,\"similarity_boost\":0.85,\"style\":0.0,\"use_speaker_boost\":true}")
++            body.append("--\(boundary)\r\n".data(using: .utf8)!)
++            body.append("Content-Disposition: form-data; name=\"audio\"; filename=\"voice.wav\"\r\n".data(using: .utf8)!)
++            body.append("Content-Type: audio/wav\r\n\r\n".data(using: .utf8)!)
++            body.append(wav)
++            body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
++            request.httpBody = body
++
++            let task = perform(request, completion: { result in
++                switch result {
++                case let .failure(error):
++                    subscriber.putError(error)
++                case let .success(data):
++                    subscriber.putNext(data)
++                    subscriber.putCompletion()
++                }
++            })
++            return ActionDisposable {
++                task.cancel()
++            }
++        }
++    }
++}
 diff --git a/submodules/TelegramCore/Sources/Kasper/KasperSettings.swift b/submodules/TelegramCore/Sources/Kasper/KasperSettings.swift
 new file mode 100644
-index 0000000..2a7aef2
+index 0000000..356776c
 --- /dev/null
 +++ b/submodules/TelegramCore/Sources/Kasper/KasperSettings.swift
-@@ -0,0 +1,383 @@
+@@ -0,0 +1,432 @@
 +import Foundation
 +import Postbox
 +import SwiftSignalKit
@@ -1307,6 +1760,12 @@ index 0000000..2a7aef2
 +        static let localNickname = "kasper.localNickname"
 +        static let voice = "kasper.voice"
 +        static let voiceInCalls = "kasper.voice.calls"
++        static let elevenLabsEnabled = "kasper.voice.elevenlabs"
++        static let elevenLabsApiKey = "kasper.voice.elevenlabs.key"
++        static let elevenLabsVoiceId = "kasper.voice.elevenlabs.voiceId"
++        static let elevenLabsVoiceName = "kasper.voice.elevenlabs.voiceName"
++        static let elevenLabsRemoveNoise = "kasper.voice.elevenlabs.removeNoise"
++        static let elevenLabsLastError = "kasper.voice.elevenlabs.lastError"
 +        static let profileTab = "kasper.ui.profileTab"
 +        static let legacyGlass = "kasper.ui.legacyGlass"
 +        static let watermarkVideoNotes = "kasper.ui.watermarkVideoNotes"
@@ -1393,6 +1852,49 @@ index 0000000..2a7aef2
 +    public static var voiceInCalls: Bool {
 +        get { return flag(Key.voiceInCalls, default: false) }
 +        set { defaults.set(newValue, forKey: Key.voiceInCalls) }
++    }
++
++    // MARK: - ElevenLabs
++
++    /// Реалистичная смена голоса через ElevenLabs Voice Changer (только голосовые сообщения).
++    public static var elevenLabsEnabled: Bool {
++        get { return flag(Key.elevenLabsEnabled, default: false) }
++        set { defaults.set(newValue, forKey: Key.elevenLabsEnabled) }
++    }
++
++    /// API-ключ ElevenLabs. Хранится только на этом устройстве.
++    public static var elevenLabsApiKey: String {
++        get { return defaults.string(forKey: Key.elevenLabsApiKey) ?? "" }
++        set { defaults.set(newValue.trimmingCharacters(in: .whitespacesAndNewlines), forKey: Key.elevenLabsApiKey) }
++    }
++
++    /// ID выбранного голоса ElevenLabs.
++    public static var elevenLabsVoiceId: String {
++        get { return defaults.string(forKey: Key.elevenLabsVoiceId) ?? "" }
++        set { defaults.set(newValue.trimmingCharacters(in: .whitespacesAndNewlines), forKey: Key.elevenLabsVoiceId) }
++    }
++
++    /// Имя выбранного голоса — чтобы показать его без запроса к ElevenLabs.
++    public static var elevenLabsVoiceName: String {
++        get { return defaults.string(forKey: Key.elevenLabsVoiceName) ?? "" }
++        set { defaults.set(newValue, forKey: Key.elevenLabsVoiceName) }
++    }
++
++    /// Просить ElevenLabs убрать фоновый шум перед сменой голоса.
++    public static var elevenLabsRemoveNoise: Bool {
++        get { return flag(Key.elevenLabsRemoveNoise, default: true) }
++        set { defaults.set(newValue, forKey: Key.elevenLabsRemoveNoise) }
++    }
++
++    /// Последняя ошибка ElevenLabs (пусто, если последняя запись прошла успешно).
++    public static var elevenLabsLastError: String {
++        get { return defaults.string(forKey: Key.elevenLabsLastError) ?? "" }
++        set { defaults.set(newValue, forKey: Key.elevenLabsLastError) }
++    }
++
++    /// ElevenLabs включён и настроен: есть ключ и выбран голос.
++    public static var elevenLabsActive: Bool {
++        return elevenLabsEnabled && !elevenLabsApiKey.isEmpty && !elevenLabsVoiceId.isEmpty
 +    }
 +
 +    // MARK: - Интерфейс
@@ -2261,6 +2763,273 @@ index c5f58f4..5e42671 100644
      items[.shortcuts]!.append(PeerInfoScreenDisclosureItem(id: 1, text: presentationData.strings.Settings_SavedMessages, icon: PresentationResourcesSettings.savedMessages, action: {
          interaction.openSettings(.savedMessages)
      }))
+diff --git a/submodules/TelegramUI/Sources/Kasper/KasperElevenLabsRecording.swift b/submodules/TelegramUI/Sources/Kasper/KasperElevenLabsRecording.swift
+new file mode 100644
+index 0000000..da724f3
+--- /dev/null
++++ b/submodules/TelegramUI/Sources/Kasper/KasperElevenLabsRecording.swift
+@@ -0,0 +1,261 @@
++import Foundation
++import SwiftSignalKit
++import TelegramCore
++import AccountContext
++import OpusBinding
++import AudioWaveform
++
++/// Реалистичная смена голоса в голосовых через ElevenLabs Voice Changer.
++///
++/// Во время записи голос не трогается. Когда запись остановлена, Kasper:
++/// 1. раскодирует готовое голосовое (ogg/opus, 48 кГц) в PCM;
++/// 2. отправляет его в ElevenLabs (WAV 24 кГц);
++/// 3. получает ту же фразу выбранным голосом и заново кодирует её в ogg/opus;
++/// 4. пересчитывает волну, чтобы она совпадала с новым звуком.
++///
++/// Если ElevenLabs недоступен, настоящий голос никуда не уходит: к записи применяется
++/// локальный эффект (выбранный в Kasper, иначе «Мужской»), а причина видна в настройках.
++enum KasperElevenLabsRecording {
++    private static let recordingSampleRate = 48000
++    private static let frameSamples = 960 // 20 мс при 48 кГц — столько ждёт TGOggOpusWriter
++
++    // Последняя обработанная запись: takenRecordedData вызывается повторно
++    // (предпрослушивание, обрезка), и платить кредитами дважды за одно и то же не нужно.
++    private static let cacheLock = NSLock()
++    private static var cachedSource: Data?
++    private static var cachedVoiceId: String?
++    private static var cachedResult: RecordedAudioData?
++
++    static func process(_ data: RecordedAudioData) -> Signal<RecordedAudioData, NoError> {
++        let apiKey = KasperSettings.elevenLabsApiKey
++        let voiceId = KasperSettings.elevenLabsVoiceId
++        let removeNoise = KasperSettings.elevenLabsRemoveNoise
++
++        KasperElevenLabsRecording.cacheLock.lock()
++        if let source = KasperElevenLabsRecording.cachedSource, source == data.compressedData, KasperElevenLabsRecording.cachedVoiceId == voiceId, let cached = KasperElevenLabsRecording.cachedResult {
++            KasperElevenLabsRecording.cacheLock.unlock()
++            return .single(RecordedAudioData(compressedData: cached.compressedData, resumeData: data.resumeData, duration: cached.duration, waveform: cached.waveform, trimRange: data.trimRange))
++        }
++        KasperElevenLabsRecording.cacheLock.unlock()
++
++        let queue = Queue.concurrentDefaultQueue()
++
++        return Signal<[Int16], NoError> { subscriber in
++            subscriber.putNext(KasperElevenLabsRecording.decodeOpus(data.compressedData) ?? [])
++            subscriber.putCompletion()
++            return EmptyDisposable
++        }
++        |> runOn(queue)
++        |> mapToSignal { pcm48 -> Signal<RecordedAudioData, NoError> in
++            guard pcm48.count > KasperElevenLabsRecording.recordingSampleRate / 4 else {
++                return .single(data)
++            }
++            let wav = KasperElevenLabsRecording.makeWav(samples: KasperElevenLabsRecording.downsampleByTwo(pcm48), sampleRate: KasperElevenLabsRecording.recordingSampleRate / 2)
++
++            return KasperElevenLabs.changeVoice(wav: wav, voiceId: voiceId, apiKey: apiKey, removeBackgroundNoise: removeNoise)
++            |> deliverOn(queue)
++            |> map { pcmData -> RecordedAudioData in
++                let converted = KasperElevenLabsRecording.pcmFromLittleEndian(pcmData)
++                let upsampled = KasperElevenLabsRecording.upsample(converted, from: KasperElevenLabs.outputSampleRate, to: KasperElevenLabsRecording.recordingSampleRate)
++                guard upsampled.count > KasperElevenLabsRecording.frameSamples, let encoded = KasperElevenLabsRecording.encode(samples: upsampled, source: data) else {
++                    KasperSettings.elevenLabsLastError = "ElevenLabs вернул звук, который не удалось обработать"
++                    return KasperElevenLabsRecording.fallback(pcm48, source: data)
++                }
++                KasperSettings.elevenLabsLastError = ""
++                KasperElevenLabsRecording.cacheLock.lock()
++                KasperElevenLabsRecording.cachedSource = data.compressedData
++                KasperElevenLabsRecording.cachedVoiceId = voiceId
++                KasperElevenLabsRecording.cachedResult = encoded
++                KasperElevenLabsRecording.cacheLock.unlock()
++                return encoded
++            }
++            |> `catch` { error -> Signal<RecordedAudioData, NoError> in
++                KasperSettings.elevenLabsLastError = error.text
++                return .single(KasperElevenLabsRecording.fallback(pcm48, source: data))
++            }
++        }
++    }
++
++    /// ElevenLabs не сработал: отправляем запись с локальным эффектом, а не настоящим голосом.
++    private static func fallback(_ pcm48: [Int16], source: RecordedAudioData) -> RecordedAudioData {
++        var samples = pcm48
++        let voice = KasperSettings.voice == .none ? KasperVoice.male : KasperSettings.voice
++        if let processor = KasperVoiceProcessor(voice: voice) {
++            samples.withUnsafeMutableBufferPointer { buffer in
++                if let base = buffer.baseAddress {
++                    processor.process(base, count: buffer.count)
++                }
++            }
++        }
++        return KasperElevenLabsRecording.encode(samples: samples, source: source) ?? source
++    }
++
++    // MARK: - Кодеки
++
++    private static func decodeOpus(_ data: Data) -> [Int16]? {
++        let path = NSTemporaryDirectory() + "kasper-el-\(UInt64.random(in: 0 ... UInt64.max)).ogg"
++        guard (try? data.write(to: URL(fileURLWithPath: path))) != nil else {
++            return nil
++        }
++        defer {
++            try? FileManager.default.removeItem(atPath: path)
++        }
++        guard let reader = OggOpusReader(path: path) else {
++            return nil
++        }
++        var result: [Int16] = []
++        result.reserveCapacity(data.count * 12)
++        let chunk = 5760
++        var buffer = [Int16](repeating: 0, count: chunk)
++        while true {
++            let read = buffer.withUnsafeMutableBytes { raw -> Int32 in
++                return reader.read(raw.baseAddress!, bufSize: Int32(chunk))
++            }
++            if read <= 0 {
++                break
++            }
++            result.append(contentsOf: buffer[0 ..< Int(read)])
++        }
++        return result
++    }
++
++    private static func encode(samples: [Int16], source: RecordedAudioData) -> RecordedAudioData? {
++        let dataItem = TGDataItem()
++        let writer = TGOggOpusWriter()
++        guard writer.begin(with: dataItem) else {
++            return nil
++        }
++        var frame = [Int16](repeating: 0, count: frameSamples)
++        var offset = 0
++        while offset < samples.count {
++            let count = min(frameSamples, samples.count - offset)
++            for i in 0 ..< frameSamples {
++                frame[i] = i < count ? samples[offset + i] : 0
++            }
++            let ok = frame.withUnsafeMutableBytes { raw -> Bool in
++                return writer.writeFrame(raw.baseAddress!.assumingMemoryBound(to: UInt8.self), frameByteCount: UInt(frameSamples * 2))
++            }
++            if !ok {
++                return nil
++            }
++            offset += count
++        }
++        guard writer.writeFrame(nil, frameByteCount: 0) else {
++            return nil
++        }
++        return RecordedAudioData(
++            compressedData: dataItem.data(),
++            resumeData: source.resumeData,
++            duration: writer.encodedDuration(),
++            waveform: waveform(samples),
++            trimRange: source.trimRange
++        )
++    }
++
++    /// Та же волна из 100 столбиков по 5 бит, что строит ManagedAudioRecorder.
++    private static func waveform(_ samples: [Int16]) -> Data {
++        var scaled = [Int16](repeating: 0, count: 100)
++        if !samples.isEmpty {
++            for i in 0 ..< samples.count {
++                var sample = samples[i]
++                if sample < 0 {
++                    sample = sample == Int16.min ? Int16.max : -sample
++                }
++                let index = min(99, i * 100 / samples.count)
++                if scaled[index] < sample {
++                    scaled[index] = sample
++                }
++            }
++        }
++        var sum: Int64 = 0
++        for value in scaled {
++            sum += Int64(value)
++        }
++        var calculatedPeak = UInt16(clamping: Int64(Double(sum) * 1.8 / 100.0))
++        if calculatedPeak < 2500 {
++            calculatedPeak = 2500
++        }
++        for i in 0 ..< 100 {
++            let sample = Int64(scaled[i])
++            let minPeak = min(sample, Int64(calculatedPeak))
++            scaled[i] = Int16(clamping: min(31, minPeak * 31 / Int64(calculatedPeak)))
++        }
++        let samplesData = scaled.withUnsafeBufferPointer { Data(buffer: $0) }
++        let bitstream = AudioWaveform(samples: samplesData, peak: 31).makeBitstream()
++        return AudioWaveform(bitstream: bitstream, bitsPerSample: 5).makeBitstream()
++    }
++
++    // MARK: - PCM
++
++    private static func downsampleByTwo(_ samples: [Int16]) -> [Int16] {
++        var result = [Int16](repeating: 0, count: samples.count / 2)
++        for i in 0 ..< result.count {
++            // простой фильтр [1 2 1] перед прореживанием, чтобы не было «звона»
++            let a = Int32(samples[max(0, 2 * i - 1)])
++            let b = Int32(samples[2 * i])
++            let c = Int32(samples[2 * i + 1])
++            result[i] = Int16(clamping: (a + 2 * b + c) / 4)
++        }
++        return result
++    }
++
++    private static func upsample(_ samples: [Int16], from: Int, to: Int) -> [Int16] {
++        guard from != to, !samples.isEmpty else {
++            return samples
++        }
++        let ratio = Double(from) / Double(to)
++        let count = Int(Double(samples.count) / ratio)
++        var result = [Int16](repeating: 0, count: count)
++        for i in 0 ..< count {
++            let position = Double(i) * ratio
++            let i0 = min(samples.count - 1, Int(position))
++            let i1 = min(samples.count - 1, i0 + 1)
++            let fraction = position - Double(i0)
++            result[i] = Int16(clamping: Int(Double(samples[i0]) * (1.0 - fraction) + Double(samples[i1]) * fraction))
++        }
++        return result
++    }
++
++    private static func pcmFromLittleEndian(_ data: Data) -> [Int16] {
++        let count = data.count / 2
++        var result = [Int16](repeating: 0, count: count)
++        data.withUnsafeBytes { raw in
++            for i in 0 ..< count {
++                let lo = UInt16(raw[2 * i])
++                let hi = UInt16(raw[2 * i + 1])
++                result[i] = Int16(bitPattern: lo | (hi << 8))
++            }
++        }
++        return result
++    }
++
++    private static func makeWav(samples: [Int16], sampleRate: Int) -> Data {
++        var data = Data()
++        func append32(_ value: UInt32) {
++            var v = value.littleEndian
++            withUnsafeBytes(of: &v) { data.append(contentsOf: $0) }
++        }
++        func append16(_ value: UInt16) {
++            var v = value.littleEndian
++            withUnsafeBytes(of: &v) { data.append(contentsOf: $0) }
++        }
++        let byteCount = UInt32(samples.count * 2)
++        data.append(contentsOf: Array("RIFF".utf8))
++        append32(36 + byteCount)
++        data.append(contentsOf: Array("WAVE".utf8))
++        data.append(contentsOf: Array("fmt ".utf8))
++        append32(16)
++        append16(1) // PCM
++        append16(1) // моно
++        append32(UInt32(sampleRate))
++        append32(UInt32(sampleRate * 2))
++        append16(2)
++        append16(16)
++        data.append(contentsOf: Array("data".utf8))
++        append32(byteCount)
++        for sample in samples {
++            append16(UInt16(bitPattern: sample))
++        }
++        return data
++    }
++}
 diff --git a/submodules/TelegramUI/Sources/Kasper/KasperScreenshotBadge.swift b/submodules/TelegramUI/Sources/Kasper/KasperScreenshotBadge.swift
 new file mode 100644
 index 0000000..52d65cf
@@ -2380,24 +3149,30 @@ index 0000000..52d65cf
 +}
 diff --git a/submodules/TelegramUI/Sources/Kasper/KasperVoiceEffect.swift b/submodules/TelegramUI/Sources/Kasper/KasperVoiceEffect.swift
 new file mode 100644
-index 0000000..ff4cb2c
+index 0000000..ba1f0c9
 --- /dev/null
 +++ b/submodules/TelegramUI/Sources/Kasper/KasperVoiceEffect.swift
-@@ -0,0 +1,170 @@
+@@ -0,0 +1,176 @@
 +import Foundation
 +import TelegramCore
 +
 +/// Изменение голоса в голосовых сообщениях Kasper.
 +///
-+/// Обрабатывает поток записи (16 кГц, моно, Int16) прямо перед кодированием в opus,
++/// Обрабатывает поток записи (48 кГц, моно, Int16) прямо перед кодированием в opus,
 +/// поэтому работает без задержек и не требует сторонних библиотек.
 +/// Всё происходит на телефоне: наружу уходит уже изменённый голос.
 +public final class KasperVoiceProcessor {
 +    private let voice: KasperVoice
 +
++    /// Частота записи голосовых в Telegram (ManagedAudioRecorder пишет 48 кГц).
++    /// Раньше константы ниже были посчитаны для 16 кГц, из-за чего окно сдвига высоты
++    /// было в 3 раза короче (13 мс) — отсюда «металлический» и неестественный звук.
++    static let sampleRate: Double = 48000.0
++
 +    // Сдвиг высоты голоса: кольцевой буфер с двумя считывающими головками.
 +    private static let bufferSize = 8192
-+    private static let windowSize: Double = 640.0
++    // 40 мс — как в обработке звонков (KasperCallVoice.h)
++    private static let windowSize: Double = KasperVoiceProcessor.sampleRate / 25.0
 +    private var buffer = [Float](repeating: 0.0, count: KasperVoiceProcessor.bufferSize)
 +    private var writePosition: Int = 0
 +    private var readPhase: Double = 0.0
@@ -2426,7 +3201,7 @@ index 0000000..ff4cb2c
 +        self.voice = voice
 +        self.ratio = voice.pitchRatio
 +        self.baseRatio = voice.pitchRatio
-+        self.echoBuffer = [Float](repeating: 0.0, count: 16000 * 3 / 10)
++        self.echoBuffer = [Float](repeating: 0.0, count: Int(KasperVoiceProcessor.sampleRate * 0.28))
 +    }
 +
 +    private func sample(at delay: Double) -> Float {
@@ -2470,7 +3245,7 @@ index 0000000..ff4cb2c
 +    }
 +
 +    private func robot(_ input: Float) -> Float {
-+        self.modulatorPhase += 2.0 * Double.pi * 95.0 / 16000.0
++        self.modulatorPhase += 2.0 * Double.pi * 95.0 / KasperVoiceProcessor.sampleRate
 +        if self.modulatorPhase > 2.0 * Double.pi {
 +            self.modulatorPhase -= 2.0 * Double.pi
 +        }
@@ -2483,7 +3258,7 @@ index 0000000..ff4cb2c
 +        if self.holdCounter == 0 {
 +            let levels: Float = 14.0
 +            self.holdValue = (input * levels).rounded() / levels
-+            self.holdCounter = 3
++            self.holdCounter = max(1, Int(KasperVoiceProcessor.sampleRate / 5300.0))
 +        } else {
 +            self.holdCounter -= 1
 +        }
@@ -2500,7 +3275,7 @@ index 0000000..ff4cb2c
 +
 +    private func monster(_ input: Float) -> Float {
 +        // низкое рычание поверх уже сниженного голоса
-+        self.growlPhase += 2.0 * Double.pi * 28.0 / 16000.0
++        self.growlPhase += 2.0 * Double.pi * 28.0 / KasperVoiceProcessor.sampleRate
 +        if self.growlPhase > 2.0 * Double.pi {
 +            self.growlPhase -= 2.0 * Double.pi
 +        }
@@ -2511,7 +3286,7 @@ index 0000000..ff4cb2c
 +
 +    private func oldManRatio() -> Double {
 +        // голос слегка «плавает», как у пожилого человека
-+        self.vibratoPhase += 2.0 * Double.pi * 5.5 / 16000.0
++        self.vibratoPhase += 2.0 * Double.pi * 5.5 / KasperVoiceProcessor.sampleRate
 +        if self.vibratoPhase > 2.0 * Double.pi {
 +            self.vibratoPhase -= 2.0 * Double.pi
 +        }
@@ -2555,19 +3330,20 @@ index 0000000..ff4cb2c
 +    }
 +}
 diff --git a/submodules/TelegramUI/Sources/ManagedAudioRecorder.swift b/submodules/TelegramUI/Sources/ManagedAudioRecorder.swift
-index feca4e4..45d8846 100644
+index feca4e4..bb6b3de 100644
 --- a/submodules/TelegramUI/Sources/ManagedAudioRecorder.swift
 +++ b/submodules/TelegramUI/Sources/ManagedAudioRecorder.swift
-@@ -162,6 +162,8 @@ final class ManagedAudioRecorderContext {
+@@ -162,6 +162,9 @@ final class ManagedAudioRecorderContext {
      private var oggWriter: TGOggOpusWriter
      private var dataItem: TGDataItem
      private var audioBuffer = Data()
-+    // Kasper: изменение голоса выбирается на момент начала записи
-+    private let kasperVoiceProcessor = KasperVoiceProcessor(voice: KasperSettings.voice)
++    // Kasper: изменение голоса выбирается на момент начала записи.
++    // С ElevenLabs запись идёт чистой: голос меняется целиком после остановки.
++    private let kasperVoiceProcessor = KasperVoiceProcessor(voice: KasperSettings.elevenLabsActive ? KasperVoice.none : KasperSettings.voice)
      
      private let audioUnit = Atomic<AudioUnit?>(value: nil)
      
-@@ -621,6 +623,11 @@ final class ManagedAudioRecorderContext {
+@@ -621,6 +624,11 @@ final class ManagedAudioRecorderContext {
                  self.audioBuffer.append(currentEncoderPacket.assumingMemoryBound(to: UInt8.self), count: currentEncoderPacketSize)
                  break
              } else {
@@ -2579,6 +3355,26 @@ index feca4e4..45d8846 100644
                  self.processWaveformPreview(samples: currentEncoderPacket.assumingMemoryBound(to: Int16.self), count: currentEncoderPacketSize / 2)
                  
                  self.oggWriter.writeFrame(currentEncoderPacket.assumingMemoryBound(to: UInt8.self), frameByteCount: UInt(currentEncoderPacketSize))
+@@ -842,8 +850,18 @@ final class ManagedAudioRecorderImpl: ManagedAudioRecorder {
+         }
+         let previewState = self.previewStateValue.get()
+         
++        // Kasper: реалистичный голос ElevenLabs — запись меняется один раз после остановки
++        let kasperDataState: Signal<RecordedAudioData?, NoError> = dataState
++        |> mapToSignal { data -> Signal<RecordedAudioData?, NoError> in
++            guard let data, data.duration >= 0.5, KasperSettings.elevenLabsActive else {
++                return .single(data)
++            }
++            return KasperElevenLabsRecording.process(data)
++            |> map { Optional($0) }
++        }
++        
+         return combineLatest(
+-            dataState,
++            kasperDataState,
+             previewState
+         ) |> map { data, preview -> RecordedAudioData? in
+             if let data {
 diff --git a/submodules/TelegramUI/Sources/SharedAccountContext.swift b/submodules/TelegramUI/Sources/SharedAccountContext.swift
 index 5637c9e..853020a 100644
 --- a/submodules/TelegramUI/Sources/SharedAccountContext.swift
