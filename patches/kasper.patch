@@ -321,6 +321,302 @@ index b692e0a..c188beb 100644
  "NSContactsUsageDescription" = "Telegram will continuously upload your contacts to its heavily encrypted cloud servers to let you connect with your friends across all your devices.";
  "NSLocationWhenInUseUsageDescription" = "친구에게 회원님의 위치를 전송할 경우 위치를 지도에 표시하기 위해 텔레그램이 위치 정보에 접근할 수 있어야 합니다.";
  "NSLocationAlwaysUsageDescription" = "친구에게 회원님의 위치를 전송할 경우 위치를 지도에 표시하기 위해 텔레그램이 위치 정보에 접근할 수 있어야 합니다. 애플워치에 위치 전송을 위해서도 필요합니다.";
+diff --git a/submodules/Display/Source/Font.swift b/submodules/Display/Source/Font.swift
+index 4f1a4c0..416db50 100644
+--- a/submodules/Display/Source/Font.swift
++++ b/submodules/Display/Source/Font.swift
+@@ -1,6 +1,117 @@
+ import Foundation
+ import UIKit
+ 
++/// Kasper: свой шрифт для всего приложения (раздел «Шрифты»).
++/// Display не видит TelegramCore, поэтому выбор читаем по ключам UserDefaults.
++/// Значения берутся один раз при запуске: так весь интерфейс остаётся в одном шрифте,
++/// а новый выбор применяется после перезапуска Kasper.
++public enum KasperFontOverride {
++    /// Папка со шрифтами, которые пользователь добавил сам (.ttf / .otf).
++    public static var customFontsFolder: URL? {
++        guard let directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
++            return nil
++        }
++        return directory.appendingPathComponent("Kasper", isDirectory: true).appendingPathComponent("Fonts", isDirectory: true)
++    }
++
++    /// Регистрирует добавленные шрифты, чтобы iOS их увидела. Можно вызывать повторно.
++    @discardableResult
++    public static func registerCustomFonts() -> [String] {
++        guard let folder = customFontsFolder, let files = try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil) else {
++            return []
++        }
++        var families: [String] = []
++        for file in files {
++            let ext = file.pathExtension.lowercased()
++            guard ext == "ttf" || ext == "otf" else {
++                continue
++            }
++            CTFontManagerRegisterFontsForURL(file as CFURL, .process, nil)
++            if let descriptors = CTFontManagerCreateFontDescriptorsFromURL(file as CFURL) {
++                for index in 0 ..< CFArrayGetCount(descriptors) {
++                    guard let rawValue = CFArrayGetValueAtIndex(descriptors, index) else {
++                        continue
++                    }
++                    let descriptor = unsafeBitCast(rawValue, to: CTFontDescriptor.self)
++                    if let family = CTFontDescriptorCopyAttribute(descriptor, kCTFontFamilyNameAttribute) as? String, !families.contains(family) {
++                        families.append(family)
++                    }
++                }
++            }
++        }
++        return families
++    }
++
++    private struct State {
++        let family: String
++        let weightShift: Int
++    }
++
++    private static let state: State? = {
++        let defaults = UserDefaults.standard
++        let family = defaults.string(forKey: "kasper.font.family") ?? "system"
++        let shift = max(-2, min(2, defaults.integer(forKey: "kasper.font.weightShift")))
++        if family == "system" && shift == 0 {
++            return nil
++        }
++        switch family {
++        case "system", "rounded", "serif", "mono":
++            break
++        default:
++            registerCustomFonts()
++            // шрифт удалили или он недоступен — остаёмся на системном
++            if !UIFont.familyNames.contains(family) {
++                return shift == 0 ? nil : State(family: "system", weightShift: shift)
++            }
++        }
++        return State(family: family, weightShift: shift)
++    }()
++
++    public static var isActive: Bool {
++        return state != nil
++    }
++
++    private static let weights: [UIFont.Weight] = [.ultraLight, .thin, .light, .regular, .medium, .semibold, .bold, .heavy, .black]
++
++    private static func shifted(_ weight: UIFont.Weight, by shift: Int) -> UIFont.Weight {
++        guard shift != 0 else {
++            return weight
++        }
++        var index = weights.firstIndex(where: { $0.rawValue >= weight.rawValue - 0.01 }) ?? 3
++        index = max(0, min(weights.count - 1, index + shift))
++        return weights[index]
++    }
++
++    /// Шрифт Kasper вместо системного или nil, если пользователь ничего не менял.
++    public static func font(size: CGFloat, weight: UIFont.Weight, italic: Bool) -> UIFont? {
++        guard let state = state else {
++            return nil
++        }
++        let resolvedWeight = shifted(weight, by: state.weightShift)
++        let base = UIFont.systemFont(ofSize: size, weight: resolvedWeight)
++        var descriptor: UIFontDescriptor
++        switch state.family {
++        case "system":
++            descriptor = base.fontDescriptor
++        case "rounded":
++            descriptor = base.fontDescriptor.withDesign(.rounded) ?? base.fontDescriptor
++        case "serif":
++            descriptor = base.fontDescriptor.withDesign(.serif) ?? base.fontDescriptor
++        case "mono":
++            descriptor = base.fontDescriptor.withDesign(.monospaced) ?? base.fontDescriptor
++        default:
++            descriptor = UIFontDescriptor(fontAttributes: [
++                .family: state.family,
++                .traits: [UIFontDescriptor.TraitKey.weight: resolvedWeight]
++            ])
++        }
++        if italic, let italicDescriptor = descriptor.withSymbolicTraits(.traitItalic) {
++            descriptor = italicDescriptor
++        }
++        return UIFont(descriptor: descriptor, size: size)
++    }
++}
++
+ public struct Font {
+     public enum Design {
+         case regular
+@@ -164,6 +275,11 @@ public struct Font {
+         if let cachedFont = self.cache.get(key) {
+             return cachedFont
+         }
++        // Kasper: свой шрифт для обычного текста (моноширинный, с засечками и т.п. не трогаем)
++        if design == .regular, !traits.contains(.monospacedNumbers), let kasperFont = KasperFontOverride.font(size: size, weight: weight.weight, italic: traits.contains(.italic)) {
++            self.cache.set(kasperFont, key: key)
++            return kasperFont
++        }
+         if #available(iOS 13.0, *), design != .camera {
+             let descriptor: UIFontDescriptor
+             if #available(iOS 14.0, *) {
+@@ -279,18 +395,30 @@ public struct Font {
+     }
+     
+     public static func regular(_ size: CGFloat) -> UIFont {
++        if let kasperFont = KasperFontOverride.font(size: size, weight: .regular, italic: false) {
++            return kasperFont
++        }
+         return UIFont.systemFont(ofSize: size)
+     }
+     
+     public static func medium(_ size: CGFloat) -> UIFont {
++        if let kasperFont = KasperFontOverride.font(size: size, weight: .medium, italic: false) {
++            return kasperFont
++        }
+         return UIFont.systemFont(ofSize: size, weight: UIFont.Weight.medium)
+     }
+     
+     public static func semibold(_ size: CGFloat) -> UIFont {
++        if let kasperFont = KasperFontOverride.font(size: size, weight: .semibold, italic: false) {
++            return kasperFont
++        }
+         return UIFont.systemFont(ofSize: size, weight: UIFont.Weight.semibold)
+     }
+     
+     public static func bold(_ size: CGFloat) -> UIFont {
++        if let kasperFont = KasperFontOverride.font(size: size, weight: .bold, italic: false) {
++            return kasperFont
++        }
+         if #available(iOS 8.2, *) {
+             return UIFont.boldSystemFont(ofSize: size)
+         } else {
+@@ -303,6 +431,9 @@ public struct Font {
+     }
+     
+     public static func light(_ size: CGFloat) -> UIFont {
++        if let kasperFont = KasperFontOverride.font(size: size, weight: .light, italic: false) {
++            return kasperFont
++        }
+         return UIFont.systemFont(ofSize: size, weight: UIFont.Weight.light)
+     }
+     
+@@ -331,6 +462,9 @@ public struct Font {
+     }
+     
+     public static func italic(_ size: CGFloat) -> UIFont {
++        if let kasperFont = KasperFontOverride.font(size: size, weight: .regular, italic: true) {
++            return kasperFont
++        }
+         return UIFont.italicSystemFont(ofSize: size)
+     }
+ }
+diff --git a/submodules/Display/Source/HapticFeedback.swift b/submodules/Display/Source/HapticFeedback.swift
+index 63b07ac..be674d7 100644
+--- a/submodules/Display/Source/HapticFeedback.swift
++++ b/submodules/Display/Source/HapticFeedback.swift
+@@ -14,6 +14,16 @@ public enum ImpactHapticFeedbackStyle: Hashable {
+     case click06
+ }
+ 
++/// Kasper: сила вибрации интерфейса из настроек Kasper (0 — выключена, 1 — обычная).
++/// Display не видит TelegramCore, поэтому читаем значение напрямую по тому же ключу.
++private func kasperHapticStrength() -> Double {
++    let defaults = UserDefaults.standard
++    if defaults.object(forKey: "kasper.haptics.strength") == nil {
++        return 1.0
++    }
++    return max(0.0, min(1.0, defaults.double(forKey: "kasper.haptics.strength")))
++}
++
+ @available(iOSApplicationExtension 10.0, iOS 10.0, *)
+ private final class HapticFeedbackImpl {
+     private lazy var impactGenerator: [ImpactHapticFeedbackStyle : UIImpactFeedbackGenerator] = {
+@@ -62,15 +72,21 @@ private final class HapticFeedbackImpl {
+     func impact(_ style: ImpactHapticFeedbackStyle) {
+         if let impactGenerator = self.impactGenerator[style] {
+             if #available(iOSApplicationExtension 13.0, iOS 13.0, *) {
++                // Kasper: мягкая вибрация — та же отдача, но слабее
++                let kasperScale = CGFloat(kasperHapticStrength())
+                 switch style {
+                     case .click05:
+-                        impactGenerator.impactOccurred(intensity: 0.3)
++                        impactGenerator.impactOccurred(intensity: 0.3 * kasperScale)
+                     case .click06:
+-                        impactGenerator.impactOccurred(intensity: 0.4)
++                        impactGenerator.impactOccurred(intensity: 0.4 * kasperScale)
+                     case .veryLight:
+-                        impactGenerator.impactOccurred(intensity: 0.3)
++                        impactGenerator.impactOccurred(intensity: 0.3 * kasperScale)
+                     default:
+-                        impactGenerator.impactOccurred()
++                        if kasperScale < 1.0 {
++                            impactGenerator.impactOccurred(intensity: kasperScale)
++                        } else {
++                            impactGenerator.impactOccurred()
++                        }
+                 }
+             } else {
+                 impactGenerator.impactOccurred()
+@@ -132,6 +148,10 @@ public final class HapticFeedback {
+     
+     @available(iOSApplicationExtension 10.0, iOS 10.0, *)
+     private func withImpl(_ f: (HapticFeedbackImpl) -> Void) {
++        // Kasper: вибрация интерфейса выключена в настройках
++        if kasperHapticStrength() <= 0.0 {
++            return
++        }
+         if self.impl == nil {
+             self.impl = HapticFeedbackImpl()
+         }
+diff --git a/submodules/MediaPlayer/Sources/MediaPlayerAudioRenderer.swift b/submodules/MediaPlayer/Sources/MediaPlayerAudioRenderer.swift
+index 9145478..dad5fef 100644
+--- a/submodules/MediaPlayer/Sources/MediaPlayerAudioRenderer.swift
++++ b/submodules/MediaPlayer/Sources/MediaPlayerAudioRenderer.swift
+@@ -74,6 +74,37 @@ private func withPlayerRendererBuffer(_ id: Int32, _ f: (Atomic<AudioPlayerRende
+ private let kOutputBus: UInt32 = 0
+ private let kInputBus: UInt32 = 1
+ 
++/// Kasper: эквалайзер из раздела «Плеер» — низкие, средние и высокие частоты.
++/// Модуль плеера не видит настройки Kasper, поэтому читаем их по ключам UserDefaults.
++private func kasperApplyEqualizer(_ unit: AudioComponentInstance) {
++    let defaults = UserDefaults.standard
++    guard defaults.bool(forKey: "kasper.eq.enabled") else {
++        return
++    }
++    let gains: [Float32] = [
++        Float32(max(-12.0, min(12.0, defaults.double(forKey: "kasper.eq.bass")))),
++        Float32(max(-12.0, min(12.0, defaults.double(forKey: "kasper.eq.mid")))),
++        Float32(max(-12.0, min(12.0, defaults.double(forKey: "kasper.eq.treble"))))
++    ]
++    let types: [Float32] = [
++        Float32(kAUNBandEQFilterType_LowShelf),
++        Float32(kAUNBandEQFilterType_Parametric),
++        Float32(kAUNBandEQFilterType_HighShelf)
++    ]
++    let frequencies: [Float32] = [120.0, 1000.0, 8000.0]
++
++    var bands: UInt32 = 3
++    AudioUnitSetProperty(unit, AudioUnitPropertyID(kAUNBandEQProperty_NumberOfBands), kAudioUnitScope_Global, 0, &bands, UInt32(MemoryLayout<UInt32>.size))
++    for band in 0 ..< 3 {
++        let offset = AudioUnitParameterID(band)
++        AudioUnitSetParameter(unit, AudioUnitParameterID(kAUNBandEQParam_FilterType) + offset, kAudioUnitScope_Global, 0, types[band], 0)
++        AudioUnitSetParameter(unit, AudioUnitParameterID(kAUNBandEQParam_Frequency) + offset, kAudioUnitScope_Global, 0, frequencies[band], 0)
++        AudioUnitSetParameter(unit, AudioUnitParameterID(kAUNBandEQParam_Bandwidth) + offset, kAudioUnitScope_Global, 0, 1.0, 0)
++        AudioUnitSetParameter(unit, AudioUnitParameterID(kAUNBandEQParam_Gain) + offset, kAudioUnitScope_Global, 0, gains[band], 0)
++        AudioUnitSetParameter(unit, AudioUnitParameterID(kAUNBandEQParam_BypassBand) + offset, kAudioUnitScope_Global, 0, 0.0, 0)
++    }
++}
++
+ private func rendererInputProc(refCon: UnsafeMutableRawPointer, ioActionFlags: UnsafeMutablePointer<AudioUnitRenderActionFlags>, inTimeStamp: UnsafePointer<AudioTimeStamp>, inBusNumber: UInt32, inNumberFrames: UInt32, ioData: UnsafeMutablePointer<AudioBufferList>?) -> OSStatus {
+     guard let ioData = ioData else {
+         return noErr
+@@ -601,6 +632,10 @@ private final class AudioPlayerRendererContext {
+             } else if self.soundMuted {
+                 AudioUnitSetParameter(equalizerAudioUnit, kAUNBandEQParam_GlobalGain, kAudioUnitScope_Global, 0, 0.0, 0)
+             }
++            // Kasper: эквалайзер для музыки и видео (голосовые и кружки не трогаем)
++            if !self.forAudioVideoMessage && !self.soundMuted {
++                kasperApplyEqualizer(equalizerAudioUnit)
++            }
+             
+             var maybeOutputAudioUnit: AudioComponentInstance?
+             guard AUGraphNodeInfo(audioGraph, outputNode, &outputDesc, &maybeOutputAudioUnit) == noErr, let outputAudioUnit = maybeOutputAudioUnit else {
 diff --git a/submodules/RMIntro/BUILD b/submodules/RMIntro/BUILD
 index aa3b3ca..2fb21e7 100644
 --- a/submodules/RMIntro/BUILD
@@ -730,10 +1026,10 @@ index 0000000..d103e96
 +}
 diff --git a/submodules/SettingsUI/Sources/Kasper/KasperLogo.swift b/submodules/SettingsUI/Sources/Kasper/KasperLogo.swift
 new file mode 100644
-index 0000000..6e6536a
+index 0000000..365745e
 --- /dev/null
 +++ b/submodules/SettingsUI/Sources/Kasper/KasperLogo.swift
-@@ -0,0 +1,86 @@
+@@ -0,0 +1,139 @@
 +import Foundation
 +import UIKit
 +
@@ -819,6 +1115,1188 @@ index 0000000..6e6536a
 +        let drawSize = CGSize(width: tinted.size.width * fit, height: tinted.size.height * fit)
 +        tinted.draw(in: CGRect(x: (box.width - drawSize.width) / 2.0, y: (box.height - drawSize.height) / 2.0, width: drawSize.width, height: drawSize.height))
 +    }
++}
++
++/// Цвет подложки для стиля «Цветные подложки» — как у разделов настроек iOS.
++private func kasperIconBackground(_ symbol: String) -> UIColor {
++    switch symbol {
++    case "magnifyingglass", "list.bullet", "info.circle.fill", "person.fill":
++        return UIColor(red: 0.56, green: 0.56, blue: 0.58, alpha: 1.0)
++    case "paintbrush.pointed.fill", "paintpalette.fill", "textformat", "square.grid.2x2.fill":
++        return UIColor(red: 0.20, green: 0.47, blue: 0.96, alpha: 1.0)
++    case "bell.fill", "bell.slash.fill", "heart.fill":
++        return UIColor(red: 1.0, green: 0.23, blue: 0.19, alpha: 1.0)
++    case "drop.fill", "globe", "network.badge.shield.half.filled", "server.rack", "antenna.radiowaves.left.and.right", "arrow.up.arrow.down":
++        return UIColor(red: 0.18, green: 0.69, blue: 0.93, alpha: 1.0)
++    case "bubble.left.fill", "clock.arrow.circlepath", "internaldrive.fill":
++        return UIColor(red: 0.20, green: 0.78, blue: 0.35, alpha: 1.0)
++    case "camera.fill", "photo.on.rectangle", "slider.horizontal.3", "bolt.fill":
++        return UIColor(red: 1.0, green: 0.58, blue: 0.0, alpha: 1.0)
++    case "eye.slash.fill", "lock.fill", "hand.raised.fill", "faceid", "archivebox.fill", "checkmark.shield.fill":
++        return UIColor(red: 0.35, green: 0.34, blue: 0.84, alpha: 1.0)
++    case "star.fill":
++        return UIColor(red: 1.0, green: 0.80, blue: 0.0, alpha: 1.0)
++    case "waveform.badge.mic", "music.note", "dot.radiowaves.left.and.right":
++        return UIColor(red: 1.0, green: 0.18, blue: 0.33, alpha: 1.0)
++    case "puzzlepiece.extension.fill", "square.grid.3x1.below.line.grid.1x2", "eye.trianglebadge.exclamationmark.fill":
++        return UIColor(red: 0.69, green: 0.32, blue: 0.87, alpha: 1.0)
++    case "kasper.logo":
++        return UIColor.black
++    default:
++        return UIColor(red: 0.45, green: 0.45, blue: 0.50, alpha: 1.0)
++    }
++}
++
++/// Иконка на цветной скруглённой подложке с белым символом внутри.
++func kasperColoredSectionIcon(_ symbol: String) -> UIImage? {
++    let box = CGSize(width: 29.0, height: 29.0)
++    let renderer = UIGraphicsImageRenderer(size: box)
++    return renderer.image { _ in
++        let rect = CGRect(origin: .zero, size: box)
++        kasperIconBackground(symbol).setFill()
++        UIBezierPath(roundedRect: rect, cornerRadius: 7.0).fill()
++        let inner: UIImage?
++        if symbol == "kasper.logo" {
++            inner = kasperLogoImage(size: 21.0, color: .white)
++        } else {
++            let configuration = UIImage.SymbolConfiguration(pointSize: 14.0, weight: .semibold)
++            inner = UIImage(systemName: symbol, withConfiguration: configuration)?.withTintColor(.white, renderingMode: .alwaysOriginal)
++        }
++        if let inner = inner {
++            let fit = min(19.0 / inner.size.width, 19.0 / inner.size.height, 1.0)
++            let size = CGSize(width: inner.size.width * fit, height: inner.size.height * fit)
++            inner.draw(in: CGRect(x: (box.width - size.width) / 2.0, y: (box.height - size.height) / 2.0, width: size.width, height: size.height))
++        }
++    }
++}
+diff --git a/submodules/SettingsUI/Sources/Kasper/KasperPlugins.swift b/submodules/SettingsUI/Sources/Kasper/KasperPlugins.swift
+new file mode 100644
+index 0000000..dc03df2
+--- /dev/null
++++ b/submodules/SettingsUI/Sources/Kasper/KasperPlugins.swift
+@@ -0,0 +1,347 @@
++import Foundation
++import JavaScriptCore
++import TelegramCore
++
++/// JS-плагин Kasper. Заголовок плагина — комментарии в начале кода:
++///
++///     // @name Мой плагин
++///     // @version 1.0
++///     // @author Имя
++///     // @description Что делает плагин
++///     // @permissions storage, notify, stars
++///
++/// Точка входа — функция `main()`. Код выполняется в отдельном JavaScriptCore без доступа
++/// к чатам, файлам и сети: плагин видит только объект `kasper` и только разрешённые части.
++struct KasperPlugin: Codable, Equatable {
++    let id: String
++    var name: String
++    var version: String
++    var author: String
++    var summary: String
++    var permissions: [String]
++    var code: String
++    var enabled: Bool
++    var installed: Double
++}
++
++enum KasperPluginPermission: String, CaseIterable {
++    case storage
++    case notify
++    case stars
++
++    var title: String {
++        switch self {
++        case .storage:
++            return "Хранить свои данные"
++        case .notify:
++            return "Показывать сообщения"
++        case .stars:
++            return "Менять локальные звёзды"
++        }
++    }
++}
++
++enum KasperPluginError: Error {
++    case noName
++    case tooLarge
++
++    var text: String {
++        switch self {
++        case .noName:
++            return "В начале кода нет строки «// @name Название плагина»."
++        case .tooLarge:
++            return "Плагин больше 200 КБ — это слишком много для Kasper."
++        }
++    }
++}
++
++final class KasperPluginManager {
++    static let shared = KasperPluginManager()
++    static let changedNotification = Notification.Name("kasper.plugins.changed")
++
++    private let lock = NSLock()
++    private let queue = DispatchQueue(label: "org.kasper.plugins")
++    private var logs: [String: [String]] = [:]
++
++    private var fileUrl: URL? {
++        guard let directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
++            return nil
++        }
++        let folder = directory.appendingPathComponent("Kasper", isDirectory: true)
++        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true, attributes: nil)
++        return folder.appendingPathComponent("plugins.json")
++    }
++
++    // MARK: Список
++
++    var plugins: [KasperPlugin] {
++        self.lock.lock()
++        defer {
++            self.lock.unlock()
++        }
++        guard let url = self.fileUrl, let data = try? Data(contentsOf: url), let list = try? JSONDecoder().decode([KasperPlugin].self, from: data) else {
++            return []
++        }
++        return list
++    }
++
++    private func save(_ list: [KasperPlugin]) {
++        self.lock.lock()
++        if let url = self.fileUrl, let data = try? JSONEncoder().encode(list) {
++            try? data.write(to: url, options: .atomic)
++        }
++        self.lock.unlock()
++        DispatchQueue.main.async {
++            NotificationCenter.default.post(name: KasperPluginManager.changedNotification, object: nil)
++        }
++    }
++
++    func plugin(id: String) -> KasperPlugin? {
++        return self.plugins.first(where: { $0.id == id })
++    }
++
++    /// Разбирает заголовок и устанавливает плагин. Плагин с тем же названием обновляется.
++    @discardableResult
++    func install(code: String) throws -> KasperPlugin {
++        guard code.utf8.count <= 200 * 1024 else {
++            throw KasperPluginError.tooLarge
++        }
++        var header: [String: String] = [:]
++        for line in code.components(separatedBy: .newlines).prefix(40) {
++            let trimmed = line.trimmingCharacters(in: .whitespaces)
++            guard trimmed.hasPrefix("//") else {
++                continue
++            }
++            let body = trimmed.dropFirst(2).trimmingCharacters(in: .whitespaces)
++            guard body.hasPrefix("@") else {
++                continue
++            }
++            let parts = body.dropFirst().split(separator: " ", maxSplits: 1).map(String.init)
++            if parts.count == 2 {
++                header[parts[0].lowercased()] = parts[1].trimmingCharacters(in: .whitespaces)
++            }
++        }
++        guard let name = header["name"], !name.isEmpty else {
++            throw KasperPluginError.noName
++        }
++        let requested = (header["permissions"] ?? "")
++            .split(whereSeparator: { $0 == "," || $0 == " " })
++            .map { String($0).lowercased() }
++            .filter { KasperPluginPermission(rawValue: $0) != nil }
++        var list = self.plugins
++        let existing = list.firstIndex(where: { $0.name == name })
++        let plugin = KasperPlugin(
++            id: existing.map { list[$0].id } ?? UUID().uuidString,
++            name: name,
++            version: header["version"] ?? "1.0",
++            author: header["author"] ?? "неизвестен",
++            summary: header["description"] ?? "",
++            permissions: requested,
++            code: code,
++            enabled: existing.map { list[$0].enabled } ?? true,
++            installed: Date().timeIntervalSince1970
++        )
++        if let existing = existing {
++            list[existing] = plugin
++        } else {
++            list.append(plugin)
++        }
++        self.save(list)
++        self.appendLog(plugin.id, "Установлен \(plugin.name) \(plugin.version)")
++        return plugin
++    }
++
++    func setEnabled(_ id: String, _ enabled: Bool) {
++        var list = self.plugins
++        if let index = list.firstIndex(where: { $0.id == id }) {
++            list[index].enabled = enabled
++            self.save(list)
++        }
++    }
++
++    /// Отозвать или вернуть разрешение: плагин получает только то, что вы оставили.
++    func setPermission(_ id: String, _ permission: KasperPluginPermission, granted: Bool) {
++        var list = self.plugins
++        guard let index = list.firstIndex(where: { $0.id == id }) else {
++            return
++        }
++        var permissions = list[index].permissions.filter { $0 != permission.rawValue }
++        if granted {
++            permissions.append(permission.rawValue)
++        }
++        list[index].permissions = permissions
++        self.save(list)
++    }
++
++    func remove(_ id: String) {
++        self.save(self.plugins.filter { $0.id != id })
++        UserDefaults.standard.removeObject(forKey: "kasper.plugin.storage.\(id)")
++        self.lock.lock()
++        self.logs[id] = nil
++        self.lock.unlock()
++    }
++
++    // MARK: Логи
++
++    func log(_ id: String) -> [String] {
++        self.lock.lock()
++        defer {
++            self.lock.unlock()
++        }
++        return self.logs[id] ?? []
++    }
++
++    func clearLog(_ id: String) {
++        self.lock.lock()
++        self.logs[id] = []
++        self.lock.unlock()
++        DispatchQueue.main.async {
++            NotificationCenter.default.post(name: KasperPluginManager.changedNotification, object: nil)
++        }
++    }
++
++    private func appendLog(_ id: String, _ line: String) {
++        let formatter = DateFormatter()
++        formatter.dateFormat = "HH:mm:ss"
++        self.lock.lock()
++        var list = self.logs[id] ?? []
++        list.append("\(formatter.string(from: Date()))  \(line)")
++        if list.count > 100 {
++            list.removeFirst(list.count - 100)
++        }
++        self.logs[id] = list
++        self.lock.unlock()
++        DispatchQueue.main.async {
++            NotificationCenter.default.post(name: KasperPluginManager.changedNotification, object: nil)
++        }
++    }
++
++    // MARK: Хранилище плагина
++
++    func storage(_ id: String) -> [String: String] {
++        return (UserDefaults.standard.dictionary(forKey: "kasper.plugin.storage.\(id)") as? [String: String]) ?? [:]
++    }
++
++    private func setStorage(_ id: String, key: String, value: String?) {
++        var dict = self.storage(id)
++        if let value = value {
++            dict[key] = String(value.prefix(10_000))
++        } else {
++            dict[key] = nil
++        }
++        if dict.count <= 200 {
++            UserDefaults.standard.set(dict, forKey: "kasper.plugin.storage.\(id)")
++        }
++    }
++
++    // MARK: Запуск
++
++    /// Выполняет `main()` плагина в новой изолированной среде JavaScriptCore.
++    /// `notify` показывает сообщение плагина пользователю.
++    func run(_ id: String, notify: @escaping (String, String) -> Void) {
++        guard let plugin = self.plugin(id: id) else {
++            return
++        }
++        guard plugin.enabled else {
++            self.appendLog(id, "Плагин выключен — запуск отменён")
++            return
++        }
++        self.queue.async { [weak self] in
++            guard let self = self else {
++                return
++            }
++            // Отдельная виртуальная машина: плагины не видят друг друга и сам Kasper
++            guard let context = JSContext(virtualMachine: JSVirtualMachine()) else {
++                self.appendLog(id, "Не удалось создать среду JavaScriptCore")
++                return
++            }
++            context.exceptionHandler = { [weak self] _, exception in
++                self?.appendLog(id, "Ошибка: \(exception?.toString() ?? "неизвестная")")
++            }
++            let permissions = Set(plugin.permissions)
++            let api = JSValue(newObjectIn: context)
++
++            let log: @convention(block) (String) -> Void = { [weak self] text in
++                self?.appendLog(id, String(text.prefix(500)))
++            }
++            api?.setObject(log, forKeyedSubscript: "log" as NSString)
++            api?.setObject("Kasper \(KasperAbout.versionString)", forKeyedSubscript: "version" as NSString)
++
++            let storage = JSValue(newObjectIn: context)
++            let storageGet: @convention(block) (String) -> String? = { [weak self] key in
++                guard permissions.contains(KasperPluginPermission.storage.rawValue) else {
++                    self?.appendLog(id, "Нет разрешения «\(KasperPluginPermission.storage.title)»")
++                    return nil
++                }
++                return self?.storage(id)[key]
++            }
++            let storageSet: @convention(block) (String, String?) -> Void = { [weak self] key, value in
++                guard permissions.contains(KasperPluginPermission.storage.rawValue) else {
++                    self?.appendLog(id, "Нет разрешения «\(KasperPluginPermission.storage.title)»")
++                    return
++                }
++                self?.setStorage(id, key: key, value: value)
++            }
++            storage?.setObject(storageGet, forKeyedSubscript: "get" as NSString)
++            storage?.setObject(storageSet, forKeyedSubscript: "set" as NSString)
++            api?.setObject(storage, forKeyedSubscript: "storage" as NSString)
++
++            let show: @convention(block) (String) -> Void = { [weak self] text in
++                guard permissions.contains(KasperPluginPermission.notify.rawValue) else {
++                    self?.appendLog(id, "Нет разрешения «\(KasperPluginPermission.notify.title)»")
++                    return
++                }
++                let message = String(text.prefix(1000))
++                DispatchQueue.main.async {
++                    notify(plugin.name, message)
++                }
++            }
++            api?.setObject(show, forKeyedSubscript: "notify" as NSString)
++
++            let stars = JSValue(newObjectIn: context)
++            let starsGet: @convention(block) () -> Int = {
++                return KasperSettings.localStars
++            }
++            let starsAdd: @convention(block) (Int) -> Int = { [weak self] delta in
++                guard permissions.contains(KasperPluginPermission.stars.rawValue) else {
++                    self?.appendLog(id, "Нет разрешения «\(KasperPluginPermission.stars.title)»")
++                    return KasperSettings.localStars
++                }
++                let value = KasperSettings.localStars + max(-1_000_000, min(1_000_000, delta))
++                DispatchQueue.main.async {
++                    KasperSettings.localStars = value
++                }
++                return max(0, value)
++            }
++            stars?.setObject(starsGet, forKeyedSubscript: "get" as NSString)
++            stars?.setObject(starsAdd, forKeyedSubscript: "add" as NSString)
++            api?.setObject(stars, forKeyedSubscript: "stars" as NSString)
++
++            context.setObject(api, forKeyedSubscript: "kasper" as NSString)
++            context.evaluateScript(plugin.code)
++            if let main = context.objectForKeyedSubscript("main"), !main.isUndefined {
++                main.call(withArguments: [])
++                self.appendLog(id, "main() выполнена")
++            } else {
++                self.appendLog(id, "В плагине нет функции main()")
++            }
++        }
++    }
++
++    /// Пример плагина, чтобы было с чего начать.
++    static let sampleCode = """
++    // @name Счётчик запусков
++    // @version 1.0
++    // @author Kasper
++    // @description Считает запуски и дарит 10 локальных звёзд
++    // @permissions storage, notify, stars
++
++    function main() {
++        var count = parseInt(kasper.storage.get("count") || "0") + 1;
++        kasper.storage.set("count", String(count));
++        var balance = kasper.stars.add(10);
++        kasper.log("Запуск номер " + count);
++        kasper.notify("Это запуск номер " + count + ". Локальных звёзд: " + balance);
++    }
++    """
++}
+diff --git a/submodules/SettingsUI/Sources/Kasper/KasperRadio.swift b/submodules/SettingsUI/Sources/Kasper/KasperRadio.swift
+new file mode 100644
+index 0000000..f82430b
+--- /dev/null
++++ b/submodules/SettingsUI/Sources/Kasper/KasperRadio.swift
+@@ -0,0 +1,259 @@
++import Foundation
++import UIKit
++import AVFoundation
++import SwiftSignalKit
++
++/// Интернет-радиостанция из каталога radio-browser.info.
++struct KasperRadioStation: Codable, Equatable {
++    let id: String
++    let name: String
++    let url: String
++    let country: String
++    let tags: String
++}
++
++/// Радио Kasper: каталог станций, избранное, история и воспроизведение через AVPlayer.
++final class KasperRadio {
++    static let shared = KasperRadio()
++    static let changedNotification = Notification.Name("kasper.radio.changed")
++
++    private var player: AVPlayer?
++    private var statusObservation: NSKeyValueObservation?
++    private var backgroundObserver: NSObjectProtocol?
++
++    private(set) var current: KasperRadioStation?
++    private(set) var isPlaying: Bool = false
++    private(set) var isLoading: Bool = false
++    private(set) var lastError: String?
++
++    private let defaults = UserDefaults.standard
++
++    // MARK: Настройки
++
++    var volume: Float {
++        get {
++            if self.defaults.object(forKey: "kasper.radio.volume") == nil {
++                return 1.0
++            }
++            return self.defaults.float(forKey: "kasper.radio.volume")
++        }
++        set {
++            self.defaults.set(max(0.0, min(1.0, newValue)), forKey: "kasper.radio.volume")
++            self.player?.volume = newValue
++            self.notify()
++        }
++    }
++
++    /// Продолжать играть, когда Kasper свёрнут.
++    var playInBackground: Bool {
++        get {
++            if self.defaults.object(forKey: "kasper.radio.background") == nil {
++                return true
++            }
++            return self.defaults.bool(forKey: "kasper.radio.background")
++        }
++        set {
++            self.defaults.set(newValue, forKey: "kasper.radio.background")
++            self.notify()
++        }
++    }
++
++    private func loadList(_ key: String) -> [KasperRadioStation] {
++        guard let data = self.defaults.data(forKey: key), let list = try? JSONDecoder().decode([KasperRadioStation].self, from: data) else {
++            return []
++        }
++        return list
++    }
++
++    private func saveList(_ list: [KasperRadioStation], key: String) {
++        if let data = try? JSONEncoder().encode(list) {
++            self.defaults.set(data, forKey: key)
++        }
++    }
++
++    var favorites: [KasperRadioStation] {
++        return self.loadList("kasper.radio.favorites")
++    }
++
++    var history: [KasperRadioStation] {
++        return self.loadList("kasper.radio.history")
++    }
++
++    func isFavorite(_ station: KasperRadioStation) -> Bool {
++        return self.favorites.contains(where: { $0.id == station.id })
++    }
++
++    func toggleFavorite(_ station: KasperRadioStation) {
++        var list = self.favorites
++        if let index = list.firstIndex(where: { $0.id == station.id }) {
++            list.remove(at: index)
++        } else {
++            list.insert(station, at: 0)
++        }
++        self.saveList(list, key: "kasper.radio.favorites")
++        self.notify()
++    }
++
++    func clearHistory() {
++        self.saveList([], key: "kasper.radio.history")
++        self.notify()
++    }
++
++    private func addToHistory(_ station: KasperRadioStation) {
++        var list = self.history.filter { $0.id != station.id }
++        list.insert(station, at: 0)
++        if list.count > 30 {
++            list.removeLast(list.count - 30)
++        }
++        self.saveList(list, key: "kasper.radio.history")
++    }
++
++    // MARK: Воспроизведение
++
++    func play(_ station: KasperRadioStation) {
++        guard let url = URL(string: station.url) else {
++            self.lastError = "У станции неверный адрес потока"
++            self.notify()
++            return
++        }
++        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [])
++        try? AVAudioSession.sharedInstance().setActive(true)
++
++        self.statusObservation?.invalidate()
++        let item = AVPlayerItem(url: url)
++        let player = AVPlayer(playerItem: item)
++        player.volume = self.volume
++        player.automaticallyWaitsToMinimizeStalling = true
++        self.player?.pause()
++        self.player = player
++        self.current = station
++        self.isLoading = true
++        self.isPlaying = true
++        self.lastError = nil
++        self.statusObservation = item.observe(\.status, options: [.new], changeHandler: { [weak self] item, _ in
++            DispatchQueue.main.async {
++                guard let self = self else {
++                    return
++                }
++                switch item.status {
++                case .readyToPlay:
++                    self.isLoading = false
++                case .failed:
++                    self.isLoading = false
++                    self.isPlaying = false
++                    self.lastError = "Станция не отвечает — попробуйте другую"
++                default:
++                    break
++                }
++                self.notify()
++            }
++        })
++        player.play()
++        self.addToHistory(station)
++        self.startBackgroundObserver()
++        self.notify()
++    }
++
++    func togglePause() {
++        guard let player = self.player else {
++            return
++        }
++        if self.isPlaying {
++            player.pause()
++            self.isPlaying = false
++        } else {
++            player.play()
++            self.isPlaying = true
++        }
++        self.notify()
++    }
++
++    func stop() {
++        self.statusObservation?.invalidate()
++        self.statusObservation = nil
++        self.player?.pause()
++        self.player = nil
++        self.current = nil
++        self.isPlaying = false
++        self.isLoading = false
++        self.notify()
++    }
++
++    private func startBackgroundObserver() {
++        guard self.backgroundObserver == nil else {
++            return
++        }
++        self.backgroundObserver = NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main, using: { [weak self] _ in
++            guard let self = self, !self.playInBackground, self.isPlaying else {
++                return
++            }
++            self.togglePause()
++        })
++    }
++
++    private func notify() {
++        NotificationCenter.default.post(name: KasperRadio.changedNotification, object: nil)
++    }
++
++    /// Строка для главного экрана Kasper.
++    var statusText: String {
++        if let current = self.current {
++            return self.isPlaying ? "Сейчас играет: \(current.name)" : "На паузе: \(current.name)"
++        }
++        return "Сейчас никто не слушает"
++    }
++
++    // MARK: Каталог
++
++    /// Станции из открытого каталога radio-browser.info: популярные в стране или найденные по названию.
++    /// Берём только потоки по https — остальные iOS не откроет.
++    static func stations(query: String, countryCode: String?) -> Signal<[KasperRadioStation], NoError> {
++        return Signal { subscriber in
++            var components = URLComponents(string: "https://de1.api.radio-browser.info/json/stations/search")!
++            var items = [
++                URLQueryItem(name: "order", value: "clickcount"),
++                URLQueryItem(name: "reverse", value: "true"),
++                URLQueryItem(name: "hidebroken", value: "true"),
++                URLQueryItem(name: "limit", value: "60")
++            ]
++            let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
++            if !trimmed.isEmpty {
++                items.append(URLQueryItem(name: "name", value: trimmed))
++            }
++            if let countryCode = countryCode {
++                items.append(URLQueryItem(name: "countrycode", value: countryCode))
++            }
++            components.queryItems = items
++            var request = URLRequest(url: components.url!, timeoutInterval: 15.0)
++            request.setValue("Kasper/1.0", forHTTPHeaderField: "User-Agent")
++            let task = URLSession.shared.dataTask(with: request, completionHandler: { data, _, _ in
++                var result: [KasperRadioStation] = []
++                if let data = data, let list = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
++                    for item in list {
++                        guard let id = item["stationuuid"] as? String, let name = item["name"] as? String else {
++                            continue
++                        }
++                        let stream = (item["url_resolved"] as? String) ?? (item["url"] as? String) ?? ""
++                        guard stream.lowercased().hasPrefix("https://") else {
++                            continue
++                        }
++                        let cleanName = name.trimmingCharacters(in: .whitespacesAndNewlines)
++                        if cleanName.isEmpty || result.contains(where: { $0.name == cleanName }) {
++                            continue
++                        }
++                        result.append(KasperRadioStation(id: id, name: cleanName, url: stream, country: (item["country"] as? String) ?? "", tags: (item["tags"] as? String) ?? ""))
++                        if result.count >= 40 {
++                            break
++                        }
++                    }
++                }
++                subscriber.putNext(result)
++                subscriber.putCompletion()
++            })
++            task.resume()
++            return ActionDisposable {
++                task.cancel()
++            }
++        }
++    }
++}
+diff --git a/submodules/SettingsUI/Sources/Kasper/KasperScreens.swift b/submodules/SettingsUI/Sources/Kasper/KasperScreens.swift
+new file mode 100644
+index 0000000..e14f95e
+--- /dev/null
++++ b/submodules/SettingsUI/Sources/Kasper/KasperScreens.swift
+@@ -0,0 +1,505 @@
++import Foundation
++import UIKit
++import Display
++import SwiftSignalKit
++import TelegramCore
++import TelegramPresentationData
++import ItemListUI
++import PresentationDataUtils
++import AccountContext
++import LegacyMediaPickerUI
++
++private func kasperAlert(_ context: AccountContext, _ navigation: KasperNavigation, title: String?, text: String) {
++    let presentationData = context.sharedContext.currentPresentationData.with { $0 }
++    navigation.present(textAlertController(context: context, title: title, text: text, actions: [TextAlertAction(type: .defaultAction, title: presentationData.strings.Common_OK, action: {})]))
++}
++
++private func kasperPickFile(_ context: AccountContext, _ navigation: KasperNavigation, types: [String], completion: @escaping (URL) -> Void) {
++    let presentationData = context.sharedContext.currentPresentationData.with { $0 }
++    let picker = legacyICloudFilePicker(theme: presentationData.theme, mode: .import, documentTypes: types, completion: { urls in
++        if let url = urls.first {
++            completion(url)
++        }
++    })
++    navigation.present(picker)
++}
++
++// MARK: - Шрифты
++
++private let kasperFontChoices: [(String, String)] = [
++    ("system", "Системный (San Francisco)"),
++    ("rounded", "Округлый"),
++    ("serif", "С засечками (New York)"),
++    ("mono", "Моноширинный"),
++    ("Avenir Next", "Avenir Next"),
++    ("Helvetica Neue", "Helvetica Neue"),
++    ("Georgia", "Georgia"),
++    ("Futura", "Futura"),
++    ("Gill Sans", "Gill Sans"),
++    ("Palatino", "Palatino")
++]
++
++func kasperFontsController(context: AccountContext) -> ViewController {
++    let navigation = KasperNavigation()
++    let refresh = ValuePromise<Int>(0, ignoreRepeated: false)
++    var tick = 0
++    let reload: () -> Void = {
++        tick += 1
++        refresh.set(tick)
++    }
++    let defaults = UserDefaults.standard
++    let appliedFamily = defaults.string(forKey: "kasper.font.family") ?? "system"
++    let appliedShift = defaults.integer(forKey: "kasper.font.weightShift")
++
++    let groups = refresh.get()
++    |> map { _ -> [KasperGroup] in
++        let family = defaults.string(forKey: "kasper.font.family") ?? "system"
++        let shift = defaults.integer(forKey: "kasper.font.weightShift")
++        let custom = KasperFontOverride.registerCustomFonts()
++
++        var fontRows: KasperGroup = [.sectionTitle(id: "font-title", text: "ШРИФТ")]
++        for (key, title) in kasperFontChoices {
++            fontRows.append(.choice(id: "font-\(key)", title: title, selected: family == key, action: {
++                defaults.set(key, forKey: "kasper.font.family")
++                reload()
++            }))
++        }
++        for name in custom where !kasperFontChoices.contains(where: { $0.0 == name }) {
++            fontRows.append(.choice(id: "font-custom-\(name)", title: "\(name) · свой", selected: family == name, action: {
++                defaults.set(name, forKey: "kasper.font.family")
++                reload()
++            }))
++        }
++        fontRows.append(.action(id: "font-import", title: "Добавить свой шрифт (.ttf, .otf)…", destructive: false, action: {
++            kasperPickFile(context, navigation, types: ["public.truetype-ttf-font", "public.opentype-font", "public.font"], completion: { url in
++                guard let folder = KasperFontOverride.customFontsFolder else {
++                    return
++                }
++                try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true, attributes: nil)
++                let destination = folder.appendingPathComponent(url.lastPathComponent)
++                try? FileManager.default.removeItem(at: destination)
++                do {
++                    try FileManager.default.copyItem(at: url, to: destination)
++                } catch {
++                    kasperAlert(context, navigation, title: "Не удалось добавить шрифт", text: error.localizedDescription)
++                    return
++                }
++                let before = Set(custom)
++                let after = KasperFontOverride.registerCustomFonts()
++                if let added = after.first(where: { !before.contains($0) }) ?? after.last {
++                    defaults.set(added, forKey: "kasper.font.family")
++                }
++                reload()
++            })
++        }))
++
++        let weightRows: KasperGroup = [
++            .sectionTitle(id: "weight-title", text: "ТОЛЩИНА"),
++            .choice(id: "weight-thin", title: "Тоньше", selected: shift < 0, action: {
++                defaults.set(-1, forKey: "kasper.font.weightShift")
++                reload()
++            }),
++            .choice(id: "weight-normal", title: "Обычная", selected: shift == 0, action: {
++                defaults.set(0, forKey: "kasper.font.weightShift")
++                reload()
++            }),
++            .choice(id: "weight-bold", title: "Жирнее", selected: shift > 0, action: {
++                defaults.set(1, forKey: "kasper.font.weightShift")
++                reload()
++            })
++        ]
++
++        var groups: [KasperGroup] = [fontRows, weightRows]
++        if family != appliedFamily || shift != appliedShift {
++            groups.insert([
++                .text(id: "font-restart", text: "Шрифт сменится после перезапуска Kasper: закройте его в переключателе приложений и откройте снова. Так весь интерфейс сразу будет в одном шрифте.")
++            ], at: 0)
++        }
++        groups.append([
++            .sectionTitle(id: "preview-title", text: "ПРЕДПРОСМОТР (ТЕКУЩИЙ ШРИФТ)"),
++            .detail(id: "preview", title: "Съешь же ещё этих мягких французских булок", text: "Да выпей чаю. Kasper 0123456789", copy: nil),
++            .link(id: "font-size", title: "Размер текста", subtitle: "Размер текста в чатах настраивается в «Темы и цвета»", symbol: "textformat.size", badge: nil, action: {
++                navigation.push(themeSettingsController(context: context))
++            }),
++            .text(id: "font-na", text: "Недоступно: межстрочный интервал и отдельный шрифт только для чатов — Telegram размечает текст в чатах своим кодом, и шрифт в нём берётся из того же общего места, что и во всём приложении.")
++        ])
++        return groups
++    }
++    return kasperListController(context: context, title: "Шрифты", navigation: navigation, groups: groups)
++}
++
++// MARK: - Радио
++
++func kasperRadioController(context: AccountContext) -> ViewController {
++    let navigation = KasperNavigation()
++    let radio = KasperRadio.shared
++    let query = ValuePromise<String>("", ignoreRepeated: true)
++    let stations = Promise<[KasperRadioStation]?>(nil)
++
++    let searchDisposable = MetaDisposable()
++    let loadStations: (String) -> Void = { text in
++        stations.set(.single(nil))
++        let country: String? = text.trimmingCharacters(in: .whitespaces).isEmpty ? "RU" : nil
++        searchDisposable.set((KasperRadio.stations(query: text, countryCode: country)
++        |> deliverOnMainQueue).start(next: { list in
++            stations.set(.single(list))
++        }))
++    }
++    loadStations("")
++
++    let stationRow: (String, KasperRadioStation) -> KasperRow = { prefix, station in
++        let playing = radio.current?.id == station.id
++        var subtitle = [station.country, station.tags.split(separator: ",").prefix(3).joined(separator: ", ")].filter({ !$0.isEmpty }).joined(separator: " · ")
++        if playing {
++            subtitle = radio.isPlaying ? "▶︎ Играет" : "⏸ На паузе"
++        }
++        return .link(id: "\(prefix)-\(station.id)", title: station.name, subtitle: subtitle.isEmpty ? nil : subtitle, symbol: playing ? "speaker.wave.2.fill" : "dot.radiowaves.left.and.right", badge: radio.isFavorite(station) ? "★" : nil, action: {
++            if radio.current?.id == station.id {
++                radio.togglePause()
++            } else {
++                radio.play(station)
++            }
++        })
++    }
++
++    let groups = combineLatest(kasperNotifications(KasperRadio.changedNotification), query.get(), stations.get())
++    |> map { _, text, list -> [KasperGroup] in
++        var groups: [KasperGroup] = []
++        if let current = radio.current {
++            var nowPlaying: KasperGroup = [
++                .sectionTitle(id: "now-title", text: "СЕЙЧАС ИГРАЕТ"),
++                .detail(id: "now", title: current.name, text: radio.isLoading ? "Подключаюсь к станции…" : (radio.isPlaying ? "Играет" : "На паузе"), copy: nil),
++                .action(id: "now-toggle", title: radio.isPlaying ? "Пауза" : "Продолжить", destructive: false, action: {
++                    radio.togglePause()
++                }),
++                .action(id: "now-favorite", title: radio.isFavorite(current) ? "Убрать из избранного" : "В избранное ★", destructive: false, action: {
++                    radio.toggleFavorite(current)
++                }),
++                .action(id: "now-stop", title: "Выключить радио", destructive: true, action: {
++                    radio.stop()
++                })
++            ]
++            if let error = radio.lastError {
++                nowPlaying.append(.text(id: "now-error", text: error))
++            }
++            groups.append(nowPlaying)
++        } else if let error = radio.lastError {
++            groups.append([.text(id: "radio-error", text: error)])
++        }
++
++        let volume = radio.volume
++        var volumeRows: KasperGroup = [.sectionTitle(id: "volume-title", text: "ГРОМКОСТЬ")]
++        for (label, level) in [("25%", Float(0.25)), ("50%", Float(0.5)), ("75%", Float(0.75)), ("100%", Float(1.0))] {
++            volumeRows.append(.choice(id: "volume-\(label)", title: label, selected: abs(volume - level) < 0.05, action: {
++                radio.volume = level
++            }))
++        }
++        volumeRows.append(.toggle(id: "background", title: "Играть в фоне", value: radio.playInBackground, enabled: true, set: { value in
++            radio.playInBackground = value
++        }))
++        groups.append(volumeRows)
++
++        let favorites = radio.favorites
++        if !favorites.isEmpty {
++            var favoriteRows: KasperGroup = [.sectionTitle(id: "fav-title", text: "ИЗБРАННОЕ")]
++            for station in favorites {
++                favoriteRows.append(stationRow("fav", station))
++            }
++            groups.append(favoriteRows)
++        }
++
++        groups.append([
++            .input(id: "radio-search", title: "🔍", placeholder: "Найти станцию по названию", value: text, set: { value in
++                query.set(value)
++                loadStations(value)
++            })
++        ])
++        if let list = list {
++            if list.isEmpty {
++                groups.append([.text(id: "radio-empty", text: "Ничего не нашлось. Попробуйте другое название.")])
++            } else {
++                let title = text.trimmingCharacters(in: .whitespaces).isEmpty ? "ПОПУЛЯРНЫЕ В РОССИИ" : "НАЙДЕНО"
++                var listRows: KasperGroup = [.sectionTitle(id: "list-title", text: title)]
++                for station in list {
++                    listRows.append(stationRow("list", station))
++                }
++                groups.append(listRows)
++            }
++        } else {
++            groups.append([.text(id: "radio-loading", text: "Загружаю станции…")])
++        }
++
++        let history = radio.history
++        if !history.isEmpty {
++            var historyRows: KasperGroup = [.sectionTitle(id: "history-title", text: "НЕДАВНО СЛУШАЛИ")]
++            for station in history.prefix(10) {
++                historyRows.append(stationRow("history", station))
++            }
++            historyRows.append(.action(id: "history-clear", title: "Очистить историю", destructive: true, action: {
++                radio.clearHistory()
++            }))
++            groups.append(historyRows)
++        }
++        groups.append([.text(id: "radio-footer", text: "Станции из открытого каталога radio-browser.info. Нажмите на станцию, чтобы включить, ещё раз — пауза. Радио играет и когда вы в чатах; если в Kasper запустить голосовое или видео, радио приглушится.")])
++        return groups
++    }
++    return kasperListController(context: context, title: "Радио", navigation: navigation, groups: groups)
++}
++
++// MARK: - VirusTotal
++
++func kasperVirusTotalController(context: AccountContext) -> ViewController {
++    let navigation = KasperNavigation()
++    let link = ValuePromise<String>("", ignoreRepeated: true)
++    var linkValue = ""
++    let busy = ValuePromise<String?>(nil, ignoreRepeated: true)
++    let checkDisposable = MetaDisposable()
++    let keyRefresh = ValuePromise<Int>(0, ignoreRepeated: false)
++    var keyTick = 0
++
++    let openUrl: (String) -> Void = { url in
++        context.sharedContext.applicationBindings.openUrl(url)
++    }
++    let finish: (String, Bool, String, Signal<KasperVirusTotalReport, KasperVirusTotalError>) -> Void = { title, isFile, webLink, signal in
++        busy.set(isFile ? "Проверяю файл…" : "Проверяю ссылку…")
++        checkDisposable.set((signal |> deliverOnMainQueue).start(next: { report in
++            busy.set(nil)
++            KasperVirusTotal.addToHistory(KasperVirusTotalCheck(title: title, isFile: isFile, link: webLink, report: report, date: Date().timeIntervalSince1970))
++            kasperAlert(context, navigation, title: title, text: report.verdict)
++        }, error: { error in
++            busy.set(nil)
++            kasperAlert(context, navigation, title: "Проверка не удалась", text: error.text)
++        }))
++    }
++
++    let checkLink: () -> Void = {
++        var url = linkValue.trimmingCharacters(in: .whitespacesAndNewlines)
++        guard !url.isEmpty else {
++            kasperAlert(context, navigation, title: nil, text: "Вставьте ссылку, которую нужно проверить.")
++            return
++        }
++        if !url.lowercased().hasPrefix("http://") && !url.lowercased().hasPrefix("https://") {
++            url = "https://" + url
++        }
++        finish(url, false, KasperVirusTotal.webLink(url: url), KasperVirusTotal.checkUrl(url, apiKey: KasperSettings.virusTotalKey))
++    }
++
++    let checkFile: () -> Void = {
++        kasperPickFile(context, navigation, types: ["public.item"], completion: { url in
++            guard let data = try? Data(contentsOf: url, options: .mappedIfSafe) else {
++                kasperAlert(context, navigation, title: nil, text: "Не удалось прочитать файл.")
++                return
++            }
++            let name = url.lastPathComponent
++            let hash = KasperVirusTotal.sha256(data)
++            let apiKey = KasperSettings.virusTotalKey
++            busy.set("Ищу файл в VirusTotal…")
++            checkDisposable.set((KasperVirusTotal.lookupFile(sha256: hash, apiKey: apiKey) |> deliverOnMainQueue).start(next: { report in
++                busy.set(nil)
++                KasperVirusTotal.addToHistory(KasperVirusTotalCheck(title: name, isFile: true, link: KasperVirusTotal.webLink(sha256: hash), report: report, date: Date().timeIntervalSince1970))
++                kasperAlert(context, navigation, title: name, text: report.verdict)
++            }, error: { error in
++                busy.set(nil)
++                guard case .notFound = error else {
++                    kasperAlert(context, navigation, title: "Проверка не удалась", text: error.text)
++                    return
++                }
++                let presentationData = context.sharedContext.currentPresentationData.with { $0 }
++                navigation.present(textAlertController(context: context, title: "Файла нет в базе", text: "VirusTotal ещё не видел «\(name)». Можно загрузить его на проверку, но тогда файл станет доступен сообществу VirusTotal. Не загружайте личные документы и фото.", actions: [
++                    TextAlertAction(type: .genericAction, title: presentationData.strings.Common_Cancel, action: {}),
++                    TextAlertAction(type: .defaultAction, title: "Загрузить", action: {
++                        finish(name, true, KasperVirusTotal.webLink(sha256: hash), KasperVirusTotal.uploadFile(data: data, name: name, apiKey: apiKey))
++                    })
++                ], actionLayout: .vertical))
++            }))
++        })
++    }
++
++    let groups = combineLatest(link.get(), busy.get(), keyRefresh.get(), kasperNotifications(KasperVirusTotal.historyChangedNotification))
++    |> map { text, busyText, _, _ -> [KasperGroup] in
++        let hasKey = !KasperSettings.virusTotalKey.isEmpty
++        var groups: [KasperGroup] = [
++            [
++                .secret(id: "vt-key", title: "Ключ", placeholder: "API key из virustotal.com", value: KasperSettings.virusTotalKey, set: { value in
++                    KasperSettings.virusTotalKey = value
++                    keyTick += 1
++                    keyRefresh.set(keyTick)
++                }),
++                .toggle(id: "vt-auto", title: "Проверять ссылки из чатов", value: KasperSettings.virusTotalAutoCheck, enabled: hasKey, set: { value in
++                    KasperSettings.virusTotalAutoCheck = value
++                    keyTick += 1
++                    keyRefresh.set(keyTick)
++                }),
++                .text(id: "vt-key-footer", text: "Ключ бесплатный: зарегистрируйтесь на virustotal.com → профиль → API key. Автопроверка перед открытием ссылки спрашивает VirusTotal и предупреждает, если антивирусы считают её опасной. Ссылки Telegram не проверяются.")
++            ]
++        ]
++        if hasKey {
++            var checkRows: KasperGroup = [
++                .input(id: "vt-link", title: "🔗", placeholder: "Ссылка для проверки", value: text, set: { value in
++                    linkValue = value
++                    link.set(value)
++                }),
++                .action(id: "vt-check-link", title: "Проверить ссылку", destructive: false, action: {
++                    checkLink()
++                }),
++                .action(id: "vt-check-file", title: "Проверить файл…", destructive: false, action: {
++                    checkFile()
++                })
++            ]
++            if let busyText = busyText {
++                checkRows.append(.text(id: "vt-busy", text: busyText))
++            }
++            checkRows.append(.text(id: "vt-check-footer", text: "Файл сначала проверяется по отпечатку (SHA-256) — сам файл никуда не уходит. Бесплатный ключ: до 4 проверок в минуту и 500 в день."))
++            groups.append(checkRows)
++        }
++        let history = KasperVirusTotal.history()
++        if !history.isEmpty {
++            let formatter = DateFormatter()
++            formatter.locale = Locale(identifier: "ru_RU")
++            formatter.dateFormat = "d MMM, HH:mm"
++            var rows: KasperGroup = [.sectionTitle(id: "vt-history-title", text: "РЕЗУЛЬТАТЫ")]
++            for (index, check) in history.prefix(30).enumerated() {
++                let date = formatter.string(from: Date(timeIntervalSince1970: check.date))
++                rows.append(.link(id: "vt-\(index)-\(Int(check.date))", title: check.title, subtitle: "\(check.report.verdict)\n\(date) · подробнее на VirusTotal", symbol: check.isFile ? "doc.fill" : "link", badge: nil, action: {
++                    openUrl(check.link)
++                }))
++            }
++            rows.append(.action(id: "vt-history-clear", title: "Очистить результаты", destructive: true, action: {
++                KasperVirusTotal.clearHistory()
++            }))
++            groups.append(rows)
++        }
++        return groups
++    }
++    return kasperListController(context: context, title: "VirusTotal", navigation: navigation, groups: groups)
++}
++
++// MARK: - Плагины
++
++func kasperPluginsController(context: AccountContext) -> ViewController {
++    let navigation = KasperNavigation()
++    let manager = KasperPluginManager.shared
++    let code = ValuePromise<String>("", ignoreRepeated: true)
++    var codeValue = ""
++
++    let install: (String) -> Void = { text in
++        do {
++            let plugin = try manager.install(code: text)
++            code.set("")
++            codeValue = ""
++            kasperAlert(context, navigation, title: "Плагин установлен", text: "«\(plugin.name)» \(plugin.version) от \(plugin.author). Разрешения можно проверить на его странице.")
++        } catch let error as KasperPluginError {
++            kasperAlert(context, navigation, title: "Не удалось установить", text: error.text)
++        } catch {
++            kasperAlert(context, navigation, title: "Не удалось установить", text: error.localizedDescription)
++        }
++    }
++
++    let groups = combineLatest(kasperNotifications(KasperPluginManager.changedNotification), code.get())
++    |> map { _, text -> [KasperGroup] in
++        var groups: [KasperGroup] = [[
++            .text(id: "plugins-intro", text: "JS-плагины расширяют Kasper без пересборки. Каждый плагин выполняется в отдельной изолированной среде JavaScriptCore: он не видит ваши чаты, файлы, сеть и другие плагины — только объект kasper и только то, что вы разрешили.")
++        ]]
++        let plugins = manager.plugins
++        if !plugins.isEmpty {
++            var rows: KasperGroup = [.sectionTitle(id: "plugins-title", text: "УСТАНОВЛЕННЫЕ")]
++            for plugin in plugins {
++                rows.append(.link(id: "plugin-\(plugin.id)", title: plugin.name, subtitle: "\(plugin.version) · \(plugin.author)\(plugin.enabled ? "" : " · выключен")", symbol: "puzzlepiece.extension.fill", badge: nil, action: {
++                    navigation.push(kasperPluginController(context: context, id: plugin.id))
++                }))
++            }
++            groups.append(rows)
++        }
++        groups.append([
++            .sectionTitle(id: "install-title", text: "УСТАНОВИТЬ"),
++            .input(id: "plugin-code", title: "JS", placeholder: "Вставьте код плагина", value: text, set: { value in
++                codeValue = value
++                code.set(value)
++            }),
++            .action(id: "plugin-install", title: "Установить из вставленного кода", destructive: false, action: {
++                install(codeValue)
++            }),
++            .action(id: "plugin-file", title: "Установить из файла .js…", destructive: false, action: {
++                kasperPickFile(context, navigation, types: ["com.netscape.javascript-source", "public.plain-text", "public.item"], completion: { url in
++                    guard let data = try? Data(contentsOf: url), let source = String(data: data, encoding: .utf8) else {
++                        kasperAlert(context, navigation, title: nil, text: "Не удалось прочитать файл.")
++                        return
++                    }
++                    install(source)
++                })
++            }),
++            .action(id: "plugin-sample", title: "Установить пример плагина", destructive: false, action: {
++                install(KasperPluginManager.sampleCode)
++            }),
++            .text(id: "plugin-format", text: "Формат: в начале кода строки «// @name Название», «// @version 1.0», «// @author Автор», «// @description Что делает», «// @permissions storage, notify, stars». Точка входа — function main().\n\nAPI: kasper.log(текст), kasper.version, kasper.storage.get(ключ) / set(ключ, значение), kasper.notify(текст), kasper.stars.get() / add(число).")
++        ])
++        return groups
++    }
++    return kasperListController(context: context, title: "Плагины", navigation: navigation, groups: groups)
++}
++
++func kasperPluginController(context: AccountContext, id: String) -> ViewController {
++    let navigation = KasperNavigation()
++    let manager = KasperPluginManager.shared
++
++    let groups = kasperNotifications(KasperPluginManager.changedNotification)
++    |> map { _ -> [KasperGroup] in
++        guard let plugin = manager.plugin(id: id) else {
++            return [[.text(id: "plugin-removed", text: "Плагин удалён.")]]
++        }
++        var groups: [KasperGroup] = [
++            [
++                .info(id: "p-version", title: "Версия", value: plugin.version, copy: nil),
++                .info(id: "p-author", title: "Автор", value: plugin.author, copy: nil),
++                .text(id: "p-summary", text: plugin.summary.isEmpty ? "Автор не добавил описание." : plugin.summary)
++            ],
++            [
++                .toggle(id: "p-enabled", title: "Включён", value: plugin.enabled, enabled: true, set: { value in
++                    manager.setEnabled(id, value)
++                }),
++                .action(id: "p-run", title: "Запустить", destructive: false, action: {
++                    manager.run(id, notify: { title, text in
++                        kasperAlert(context, navigation, title: title, text: text)
++                    })
++                })
++            ]
++        ]
++        var permissionRows: KasperGroup = [.sectionTitle(id: "p-perm-title", text: "РАЗРЕШЕНИЯ")]
++        for permission in KasperPluginPermission.allCases {
++            permissionRows.append(.toggle(id: "p-perm-\(permission.rawValue)", title: permission.title, value: plugin.permissions.contains(permission.rawValue), enabled: true, set: { value in
++                manager.setPermission(id, permission, granted: value)
++            }))
++        }
++        permissionRows.append(.text(id: "p-perm-footer", text: "Плагин запрашивает разрешения в своём коде, но решаете вы: без разрешения соответствующая функция kasper просто не сработает и напишет об этом в лог."))
++        groups.append(permissionRows)
++
++        let storage = manager.storage(id)
++        if !storage.isEmpty {
++            var storageRows: KasperGroup = [.sectionTitle(id: "p-storage-title", text: "ДАННЫЕ ПЛАГИНА")]
++            for key in storage.keys.sorted().prefix(30) {
++                storageRows.append(.info(id: "p-storage-\(key)", title: key, value: storage[key] ?? "", copy: storage[key]))
++            }
++            groups.append(storageRows)
++        }
++
++        let log = manager.log(id)
++        var logRows: KasperGroup = [.sectionTitle(id: "p-log-title", text: "ЛОГ")]
++        if log.isEmpty {
++            logRows.append(.text(id: "p-log-empty", text: "Пока пусто. Сюда попадают kasper.log(), ошибки и отказы в разрешениях."))
++        } else {
++            logRows.append(.detail(id: "p-log", title: "Последние записи", text: log.suffix(30).joined(separator: "\n"), copy: log.joined(separator: "\n")))
++            logRows.append(.action(id: "p-log-clear", title: "Очистить лог", destructive: false, action: {
++                manager.clearLog(id)
++            }))
++        }
++        groups.append(logRows)
++
++        groups.append([
++            .action(id: "p-remove", title: "Удалить плагин", destructive: true, action: {
++                manager.remove(id)
++            })
++        ])
++        return groups
++    }
++    return kasperListController(context: context, title: "Плагин", navigation: navigation, groups: groups)
 +}
 diff --git a/submodules/SettingsUI/Sources/Kasper/KasperSettingsController.swift b/submodules/SettingsUI/Sources/Kasper/KasperSettingsController.swift
 new file mode 100644
@@ -1519,10 +2997,10 @@ index 0000000..71e6c37
 +}
 diff --git a/submodules/SettingsUI/Sources/Kasper/KasperShell.swift b/submodules/SettingsUI/Sources/Kasper/KasperShell.swift
 new file mode 100644
-index 0000000..f1c23f7
+index 0000000..50beda9
 --- /dev/null
 +++ b/submodules/SettingsUI/Sources/Kasper/KasperShell.swift
-@@ -0,0 +1,789 @@
+@@ -0,0 +1,1282 @@
 +import Foundation
 +import UIKit
 +import Display
@@ -1533,6 +3011,9 @@ index 0000000..f1c23f7
 +import PresentationDataUtils
 +import AccountContext
 +import StorageUsageScreen
++import QuickReactionSetupController
++import TelegramUIPreferences
++import LegacyMediaPickerUI
 +
 +// MARK: - Разделы
 +
@@ -1615,7 +3096,7 @@ index 0000000..f1c23f7
 +        case .virustotal: return "Проверка ссылок и файлов"
 +        case .voice: return "Изменение своего голоса в записях"
 +        case .player: return "Скорость, кроссфейд, эквалайзер"
-+        case .radio: return "Сейчас никто не слушает"
++        case .radio: return KasperRadio.shared.statusText
 +        case .features: return "Стена, спецэффекты, значок в профиле"
 +        case .icons: return "Наборы иконок, замена значков интерфейса"
 +        case .plugins: return "JS-плагины расширяют функциональность Kasper без пересборки. Плагины выполняются в изолированной среде JavaScriptCore."
@@ -1657,12 +3138,7 @@ index 0000000..f1c23f7
 +
 +    /// Раздел уже работает. Остальные видны с пометкой «скоро» и не открывают пустой экран.
 +    var isReady: Bool {
-+        switch self {
-+        case .camera, .extra, .menu, .stars, .fonts, .virustotal, .player, .radio, .icons, .plugins:
-+            return false
-+        default:
-+            return true
-+        }
++        return true
 +    }
 +}
 +
@@ -1678,12 +3154,16 @@ index 0000000..f1c23f7
 +    case info(id: String, title: String, value: String, copy: String?)
 +    case input(id: String, title: String, placeholder: String, value: String, set: (String) -> Void)
 +    case text(id: String, text: String)
++    case choice(id: String, title: String, selected: Bool, action: () -> Void)
++    case secret(id: String, title: String, placeholder: String, value: String, set: (String) -> Void)
++    case detail(id: String, title: String, text: String, copy: String?)
++    case action(id: String, title: String, destructive: Bool, action: () -> Void)
 +
 +    var id: String {
 +        switch self {
 +        case .header:
 +            return "header"
-+        case let .sectionTitle(id, _), let .link(id, _, _, _, _, _), let .toggle(id, _, _, _, _), let .info(id, _, _, _), let .input(id, _, _, _, _), let .text(id, _):
++        case let .sectionTitle(id, _), let .link(id, _, _, _, _, _), let .toggle(id, _, _, _, _), let .info(id, _, _, _), let .input(id, _, _, _, _), let .text(id, _), let .choice(id, _, _, _), let .detail(id, _, _, _), let .action(id, _, _, _), let .secret(id, _, _, _, _):
 +            return id
 +        }
 +    }
@@ -1696,7 +3176,7 @@ index 0000000..f1c23f7
 +        case let .sectionTitle(_, text):
 +            return "s|\(text)"
 +        case let .link(_, title, subtitle, symbol, badge, _):
-+            return "l|\(title)|\(subtitle ?? "")|\(symbol ?? "")|\(badge ?? "")"
++            return "l|\(title)|\(subtitle ?? "")|\(symbol ?? "")|\(badge ?? "")|\(KasperSettings.iconStyle)"
 +        case let .toggle(_, title, value, enabled, _):
 +            return "t|\(title)|\(value)|\(enabled)"
 +        case let .info(_, title, value, copy):
@@ -1705,6 +3185,14 @@ index 0000000..f1c23f7
 +            return "n|\(title)|\(placeholder)|\(value)"
 +        case let .text(_, text):
 +            return "x|\(text)"
++        case let .choice(_, title, selected, _):
++            return "c|\(title)|\(selected)"
++        case let .secret(_, title, placeholder, value, _):
++            return "k|\(title)|\(placeholder)|\(value)"
++        case let .detail(_, title, text, copy):
++            return "d|\(title)|\(text)|\(copy != nil)"
++        case let .action(_, title, destructive, _):
++            return "a|\(title)|\(destructive)"
 +        }
 +    }
 +}
@@ -1759,8 +3247,62 @@ index 0000000..f1c23f7
 +            })
 +        case let .text(_, text):
 +            return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section)
++        case let .secret(_, title, placeholder, value, set):
++            return ItemListSingleLineInputItem(presentationData: presentationData, systemStyle: .glass, title: NSAttributedString(string: title, textColor: presentationData.theme.list.itemPrimaryTextColor), text: value, placeholder: placeholder, type: .password, spacing: 12.0, clearType: .always, sectionId: self.section, textUpdated: { value in
++                set(value)
++            }, processPaste: { text in
++                return text.trimmingCharacters(in: .whitespacesAndNewlines)
++            }, action: {
++            })
++        case let .choice(_, title, selected, action):
++            return ItemListCheckboxItem(presentationData: presentationData, systemStyle: .glass, title: title, style: .left, checked: selected, zeroSeparatorInsets: false, sectionId: self.section, action: {
++                action()
++            })
++        case let .detail(_, title, text, copy):
++            var action: (() -> Void)?
++            if let copy = copy {
++                action = {
++                    UIPasteboard.general.string = copy
++                }
++            }
++            return ItemListDisclosureItem(presentationData: presentationData, systemStyle: .glass, title: title, label: text, labelStyle: .multilineDetailText, sectionId: self.section, style: .blocks, disclosureStyle: .none, action: action)
++        case let .action(_, title, destructive, action):
++            return ItemListActionItem(presentationData: presentationData, systemStyle: .glass, title: title, kind: destructive ? .destructive : .generic, alignment: .natural, sectionId: self.section, style: .blocks, action: {
++                action()
++            })
 +        }
 +    }
++}
++
++/// Сигнал, который срабатывает сразу и потом при каждом таком уведомлении —
++/// чтобы экран обновлялся, когда настройка меняется в другом месте.
++func kasperNotifications(_ name: Notification.Name) -> Signal<Void, NoError> {
++    return Signal { subscriber in
++        subscriber.putNext(Void())
++        let observer = NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main, using: { _ in
++            subscriber.putNext(Void())
++        })
++        return ActionDisposable {
++            NotificationCenter.default.removeObserver(observer)
++        }
++    }
++}
++
++/// Число с пробелами между разрядами: 1 250 000.
++func kasperFormatNumber(_ value: Int) -> String {
++    let formatter = NumberFormatter()
++    formatter.numberStyle = .decimal
++    formatter.groupingSeparator = " "
++    formatter.usesGroupingSeparator = true
++    return formatter.string(from: NSNumber(value: value)) ?? "\(value)"
++}
++
++/// Строка версии в шапке; если включены локальные звёзды — рядом их баланс.
++private func kasperHeaderSubtitle() -> String {
++    if KasperSettings.showLocalStars && KasperSettings.localStars > 0 {
++        return "\(KasperAbout.versionString)  ·  ⭐ \(kasperFormatNumber(KasperSettings.localStars))"
++    }
++    return KasperAbout.versionString
 +}
 +
 +/// Иконки рисуются один раз на цвет темы, а не при каждом обновлении списка.
@@ -1770,14 +3312,15 @@ index 0000000..f1c23f7
 +    private static var cache: [String: UIImage] = [:]
 +
 +    static func icon(_ symbol: String, color: UIColor) -> UIImage? {
-+        let key = "\(symbol)|\(color.hashValue)"
++        let colored = KasperSettings.iconStyle == "color"
++        let key = "\(symbol)|\(color.hashValue)|\(colored)"
 +        lock.lock()
 +        let cached = cache[key]
 +        lock.unlock()
 +        if let cached = cached {
 +            return cached
 +        }
-+        let image = kasperSectionIcon(symbol, color: color)
++        let image = colored ? kasperColoredSectionIcon(symbol) : kasperSectionIcon(symbol, color: color)
 +        if let image = image {
 +            lock.lock()
 +            cache[key] = image
@@ -1831,20 +3374,23 @@ index 0000000..f1c23f7
 +public func kasperSettingsController(context: AccountContext) -> ViewController {
 +    let navigation = KasperNavigation()
 +
-+    var sections: KasperGroup = []
-+    for page in KasperPage.allCases {
-+        sections.append(.link(id: "page-\(page.rawValue)", title: page.title, subtitle: page.subtitle, symbol: page.symbol, badge: page.isReady ? nil : "скоро", action: {
-+            kasperOpen(page, context: context, navigation: navigation)
-+        }))
++    let groups = combineLatest(kasperNotifications(KasperSettings.localStarsChangedNotification), kasperNotifications(KasperRadio.changedNotification), kasperNotifications(KasperIconStyle.changedNotification))
++    |> map { _, _, _ -> [KasperGroup] in
++        var sections: KasperGroup = []
++        for page in KasperPage.allCases {
++            sections.append(.link(id: "page-\(page.rawValue)", title: page.title, subtitle: page.subtitle, symbol: page.symbol, badge: nil, action: {
++                kasperOpen(page, context: context, navigation: navigation)
++            }))
++        }
++        return [
++            [.header(title: "Kasper", version: kasperHeaderSubtitle())],
++            [.link(id: "about", title: "О Kasper", subtitle: "Версия, исходный код, разработчик", symbol: "person.fill", badge: nil, action: {
++                navigation.push(kasperAboutController(context: context))
++            })],
++            sections
++        ]
 +    }
-+    let groups: [KasperGroup] = [
-+        [.header(title: "Kasper", version: KasperAbout.versionString)],
-+        [.link(id: "about", title: "О Kasper", subtitle: "Версия, исходный код, разработчик", symbol: "person.fill", badge: nil, action: {
-+            navigation.push(kasperAboutController(context: context))
-+        })],
-+        sections
-+    ]
-+    return kasperListController(context: context, title: "", navigation: navigation, groups: .single(groups))
++    return kasperListController(context: context, title: "", navigation: navigation, groups: groups)
 +}
 +
 +/// Открывает раздел: свой экран Kasper или готовый экран Telegram, где функция уже есть.
@@ -1869,6 +3415,14 @@ index 0000000..f1c23f7
 +        navigation.push(kasperAllSettingsController(context: context, voiceOnly: false))
 +    case .info:
 +        navigation.push(kasperInfoController(context: context))
++    case .radio:
++        navigation.push(kasperRadioController(context: context))
++    case .virustotal:
++        navigation.push(kasperVirusTotalController(context: context))
++    case .plugins:
++        navigation.push(kasperPluginsController(context: context))
++    case .fonts:
++        navigation.push(kasperFontsController(context: context))
 +    default:
 +        navigation.push(kasperPageController(context: context, page: page))
 +    }
@@ -1885,6 +3439,9 @@ index 0000000..f1c23f7
 +        tick += 1
 +        refresh.set(tick)
 +    }
++    if page == .player {
++        KasperPlayerState.shared.refresh(context: context, completion: reload)
++    }
 +    let groups = refresh.get()
 +    |> map { _ -> [KasperGroup] in
 +        return kasperPageRows(page, context: context, navigation: navigation, reload: reload)
@@ -1892,8 +3449,9 @@ index 0000000..f1c23f7
 +    return kasperListController(context: context, title: page.title, navigation: navigation, groups: groups)
 +}
 +
-+private func kasperSoon(_ id: String, _ text: String) -> KasperRow {
-+    return .text(id: id, text: "Скоро: \(text)")
++/// Честная пометка о том, чего клиент сделать не может, и почему.
++private func kasperUnavailable(_ id: String, _ text: String) -> KasperRow {
++    return .text(id: id, text: "Недоступно: \(text)")
 +}
 +
 +func kasperPageRows(_ page: KasperPage, context: AccountContext, navigation: KasperNavigation, reload: @escaping () -> Void) -> [KasperGroup] {
@@ -1906,7 +3464,16 @@ index 0000000..f1c23f7
 +                })
 +            ],
 +            [
-+                kasperSoon("appearance-soon", "размер и скругление аватарок, стили пузырей, отступы сообщений, прозрачность элементов.")
++                .link(id: "appearance-fonts", title: "Шрифт приложения", subtitle: "Свой шрифт и толщина текста", symbol: "textformat", badge: nil, action: {
++                    navigation.push(kasperFontsController(context: context))
++                }),
++                .link(id: "appearance-icons", title: "Иконки Kasper", subtitle: "Белые символы или цветные подложки", symbol: "square.grid.2x2.fill", badge: nil, action: {
++                    kasperOpen(.icons, context: context, navigation: navigation)
++                }),
++                .link(id: "appearance-glass", title: "Стекло", subtitle: "Liquid Glass или стекло старых iOS", symbol: "drop.fill", badge: nil, action: {
++                    kasperOpen(.glass, context: context, navigation: navigation)
++                }),
++                kasperUnavailable("appearance-na", "размер и форма аватарок, стили пузырей и отступы. Telegram рисует их своим кодом в сотнях мест, и безопасно менять их без поломки чатов нельзя. Скругление сообщений и размер текста есть в «Темы и цвета».")
 +            ]
 +        ]
 +    case .glass:
@@ -1919,7 +3486,7 @@ index 0000000..f1c23f7
 +                .text(id: "glass-footer", text: "Заменяет Liquid Glass на стекло Telegram для iOS 18 и ниже. Работает на iOS 26 и новее, применяется после перезапуска Kasper.")
 +            ],
 +            [
-+                kasperSoon("glass-soon", "сила размытия, прозрачность и отдельные настройки для меню, чатов и нижней панели.")
++                kasperUnavailable("glass-na", "сила размытия и отдельная настройка для меню, чатов и панели — стекло рисует система iOS, Telegram может только выбрать, какое стекло использовать. Отключить размытие совсем можно в «Дополнительно» → «Тяжёлые эффекты».")
 +            ]
 +        ]
 +    case .messages:
@@ -1945,7 +3512,14 @@ index 0000000..f1c23f7
 +                .text(id: "edited-footer", text: "Пометку «изменено» Telegram показывает сам.")
 +            ],
 +            [
-+                kasperSoon("messages-soon", "история изменений сообщений и подробная информация о сообщении.")
++                .toggle(id: "keepEdits", title: "Сохранять историю изменений", value: KasperSettings.keepEditHistory, enabled: true, set: { value in
++                    KasperSettings.keepEditHistory = value
++                    reload()
++                }),
++                .link(id: "editHistory", title: "История изменений", subtitle: "Сохранено правок: \(KasperEditHistory.all().count)", symbol: "clock.arrow.circlepath", badge: nil, action: {
++                    navigation.push(kasperEditHistoryController(context: context))
++                }),
++                .text(id: "edits-footer", text: "Когда собеседник исправляет сообщение, Kasper запоминает, что там было написано раньше. Хранится только на этом телефоне, последние 300 правок.")
 +            ]
 +        ]
 +    case .ghost:
@@ -1959,18 +3533,35 @@ index 0000000..f1c23f7
 +                    KasperSettings.ghostHideReadReceipts = value
 +                    reload()
 +                }),
-+                .toggle(id: "ghostTyping", title: "Скрывать «печатает…» и «записывает голосовое…»", value: KasperSettings.ghostHideTyping, enabled: true, set: { value in
++                .toggle(id: "ghostTyping", title: "Скрывать «печатает…»", value: KasperSettings.ghostHideTyping, enabled: true, set: { value in
 +                    KasperSettings.ghostHideTyping = value
++                    reload()
++                }),
++                .toggle(id: "ghostRecording", title: "Скрывать «записывает голосовое…»", value: KasperSettings.ghostHideRecording, enabled: true, set: { value in
++                    KasperSettings.ghostHideRecording = value
 +                    reload()
 +                }),
 +                .toggle(id: "ghostListened", title: "Скрывать «прослушано» и просмотр медиа «один раз»", value: KasperSettings.ghostHideListened, enabled: true, set: { value in
 +                    KasperSettings.ghostHideListened = value
 +                    reload()
 +                }),
-+                .text(id: "ghost-footer", text: "Kasper не отправляет эти сигналы Telegram. Пользуйтесь на свой риск: за нестандартное поведение клиента аккаунт могут ограничить. Официальный способ скрыть время захода — Настройки → Конфиденциальность → Время захода.")
++                .toggle(id: "ghostStories", title: "Скрывать просмотр историй", value: KasperSettings.ghostHideStories, enabled: true, set: { value in
++                    KasperSettings.ghostHideStories = value
++                    reload()
++                }),
++                .text(id: "ghost-footer", text: "Kasper не отправляет эти сигналы Telegram. Просмотренная история отмечается прочитанной только у вас, автор не увидит вас в списке зрителей. Пользуйтесь на свой риск: за нестандартное поведение клиента аккаунт могут ограничить.")
 +            ],
 +            [
-+                kasperSoon("ghost-soon", "скрытие просмотра историй и отдельные настройки для личных чатов и групп.")
++                .sectionTitle(id: "ghost-scope-title", text: "ГДЕ ДЕЙСТВУЕТ"),
++                .toggle(id: "ghostInPrivate", title: "В личных чатах", value: KasperSettings.ghostInPrivate, enabled: true, set: { value in
++                    KasperSettings.ghostInPrivate = value
++                    reload()
++                }),
++                .toggle(id: "ghostInGroups", title: "В группах, каналах и темах", value: KasperSettings.ghostInGroups, enabled: true, set: { value in
++                    KasperSettings.ghostInGroups = value
++                    reload()
++                }),
++                .text(id: "ghost-scope-footer", text: "Касается прочтения, «печатает…», «записывает…» и «прослушано». Статус «в сети» и истории — общие для всего аккаунта. Официальный способ скрыть время захода — Настройки → Конфиденциальность → Время захода.")
 +            ]
 +        ]
 +    case .privacy:
@@ -1996,20 +3587,40 @@ index 0000000..f1c23f7
 +                })
 +            ],
 +            [
-+                kasperSoon("privacy-soon", "отдельная защита для выбранных чатов.")
++                .link(id: "privacy-archive", title: "Скрыть отдельные чаты", subtitle: "Ближайший вариант: перенесите чат в архив и включите код-пароль — без кода Kasper не откроется", symbol: "archivebox.fill", badge: nil, action: {
++                    navigation.push(makePrivacyAndSecurityController(context: context))
++                }),
++                kasperUnavailable("privacy-na", "пароль на отдельный чат — у Telegram нет такой защиты на уровне клиента.")
 +            ]
 +        ]
 +    case .tabs:
 +        return [
 +            [
++                .toggle(id: "tabContacts", title: "Вкладка «Контакты»", value: KasperSettings.showContactsTab, enabled: true, set: { value in
++                    KasperSettings.showContactsTab = value
++                    reload()
++                }),
++                .toggle(id: "tabCalls", title: "Вкладка «Звонки»", value: KasperSettings.showCallsTab, enabled: true, set: { value in
++                    KasperSettings.showCallsTab = value
++                    reload()
++                }),
 +                .toggle(id: "profileTab", title: "Вкладка «Профиль»", value: KasperSettings.profileTab, enabled: true, set: { value in
 +                    KasperSettings.profileTab = value
 +                    reload()
 +                }),
-+                .text(id: "tabs-footer", text: "Отдельная вкладка с вашим профилем в нижней панели.")
++                .text(id: "tabs-footer", text: "«Чаты» и «Настройки» есть всегда. «Звонки» показываются, только если они включены и в Telegram: Настройки → Недавние звонки → «Показывать вкладку».")
 +            ],
 +            [
-+                kasperSoon("tabs-soon", "порядок вкладок, их количество, иконки и свои названия.")
++                .sectionTitle(id: "tabs-order-title", text: "ПОРЯДОК"),
++                .choice(id: "tabs-order-standard", title: "Контакты, Звонки, Чаты", selected: !KasperSettings.chatsFirst, action: {
++                    KasperSettings.chatsFirst = false
++                    reload()
++                }),
++                .choice(id: "tabs-order-chats", title: "Чаты первыми", selected: KasperSettings.chatsFirst, action: {
++                    KasperSettings.chatsFirst = true
++                    reload()
++                }),
++                kasperUnavailable("tabs-na", "свои иконки и названия вкладок — их рисует Telegram анимациями, заменить их без поломки панели нельзя.")
 +            ]
 +        ]
 +    case .traffic:
@@ -2049,12 +3660,351 @@ index 0000000..f1c23f7
 +                .text(id: "nickname-footer", text: "Локальный ник виден только в Kasper. Настоящий username не меняется.")
 +            ],
 +            [
-+                kasperSoon("features-soon", "стена профиля, спецэффекты и значок Kasper в профиле.")
++                .link(id: "features-plugins", title: "Плагины", subtitle: "Свои JS-функции поверх Kasper", symbol: "puzzlepiece.extension.fill", badge: nil, action: {
++                    navigation.push(kasperPluginsController(context: context))
++                }),
++                .link(id: "features-stars", title: "Локальные звёзды", subtitle: "Своё число в шапке Kasper", symbol: "star.fill", badge: nil, action: {
++                    kasperOpen(.stars, context: context, navigation: navigation)
++                }),
++                kasperUnavailable("features-na", "стена профиля и значок Kasper, который видят другие, — на серверах Telegram такого нет, а значок только у вас был бы подделкой.")
++            ]
++        ]
++    case .extra:
++        let strength = KasperSettings.hapticStrength
++        let speed = KasperSettings.animationSpeed
++        let setStrength: (Double) -> Void = { value in
++            KasperSettings.hapticStrength = value
++            reload()
++            if value > 0.0 {
++                HapticFeedback().impact(.medium)
++            }
++        }
++        let setSpeed: (Double) -> Void = { value in
++            KasperSettings.animationSpeed = value
++            reload()
++        }
++        return [
++            [
++                .sectionTitle(id: "haptics-title", text: "ВИБРАЦИЯ ИНТЕРФЕЙСА"),
++                .choice(id: "haptics-off", title: "Выключена", selected: strength <= 0.0, action: { setStrength(0.0) }),
++                .choice(id: "haptics-soft", title: "Мягкая", selected: strength > 0.0 && strength < 1.0, action: { setStrength(0.5) }),
++                .choice(id: "haptics-normal", title: "Обычная", selected: strength >= 1.0, action: { setStrength(1.0) }),
++                .text(id: "haptics-footer", text: "Отдача при нажатиях, свайпах и переключателях. Вибрация уведомлений настраивается в разделе «Уведомления».")
++            ],
++            [
++                .sectionTitle(id: "speed-title", text: "СКОРОСТЬ АНИМАЦИЙ"),
++                .choice(id: "speed-normal", title: "Обычная", selected: speed < 1.15, action: { setSpeed(1.0) }),
++                .choice(id: "speed-fast", title: "Быстрее", selected: speed >= 1.15 && speed < 1.45, action: { setSpeed(1.3) }),
++                .choice(id: "speed-faster", title: "Очень быстро", selected: speed >= 1.45, action: { setSpeed(1.6) }),
++                .text(id: "speed-footer", text: "Экспериментально: ускоряет переходы и анимации интерфейса. Если что-то начнёт дёргаться, верните «Обычная».")
++            ],
++            [
++                .link(id: "quickReaction", title: "Реакции", subtitle: "Быстрая реакция по двойному нажатию", symbol: "heart.fill", badge: nil, action: {
++                    navigation.push(quickReactionSetupController(context: context))
++                }),
++                .link(id: "energy", title: "Тяжёлые эффекты", subtitle: "Анимации реакций и стикеров, автовоспроизведение, размытие — отключить для скорости и батареи", symbol: "bolt.fill", badge: nil, action: {
++                    navigation.push(energySavingSettingsScreen(context: context))
++                })
++            ]
++        ]
++    case .stars:
++        let balance = KasperSettings.localStars
++        let add: (Int) -> Void = { delta in
++            KasperSettings.localStars = KasperSettings.localStars + delta
++            reload()
++        }
++        return [
++            [
++                .info(id: "stars-balance", title: "⭐ Локальный баланс", value: kasperFormatNumber(balance), copy: nil),
++                .toggle(id: "stars-show", title: "Показывать в шапке Kasper", value: KasperSettings.showLocalStars, enabled: true, set: { value in
++                    KasperSettings.showLocalStars = value
++                    reload()
++                })
++            ],
++            [
++                .sectionTitle(id: "stars-counter-title", text: "СЧЁТЧИК"),
++                .action(id: "stars-add-10", title: "+10", destructive: false, action: { add(10) }),
++                .action(id: "stars-add-100", title: "+100", destructive: false, action: { add(100) }),
++                .action(id: "stars-add-1000", title: "+1 000", destructive: false, action: { add(1000) }),
++                .action(id: "stars-sub-100", title: "−100", destructive: false, action: { add(-100) }),
++                .input(id: "stars-set", title: "Задать", placeholder: "например, 5000", value: balance == 0 ? "" : "\(balance)", set: { value in
++                    let digits = String(value.filter({ $0.isNumber }).prefix(9))
++                    KasperSettings.localStars = Int(digits) ?? 0
++                    reload()
++                }),
++                .action(id: "stars-reset", title: "Обнулить", destructive: true, action: {
++                    KasperSettings.localStars = 0
++                    reload()
++                })
++            ],
++            [
++                .text(id: "stars-footer", text: "Это просто ваше число на этом телефоне. Локальные звёзды не связаны с Telegram Stars: на них ничего нельзя купить, их не видят другие, и Kasper нигде не выдаёт их за настоящий баланс.")
++            ]
++        ]
++    case .player:
++        return kasperPlayerRows(context: context, navigation: navigation, reload: reload)
++    case .camera:
++        return [
++            [
++                .toggle(id: "camera-watermark", title: "Надпись Kasper на кружках", value: KasperSettings.watermarkVideoNotes, enabled: true, set: { value in
++                    KasperSettings.watermarkVideoNotes = value
++                    reload()
++                }),
++                .link(id: "camera-autosave", title: "Сохранение в галерею", subtitle: "Автосохранение фото и видео из чатов, качество автозагрузки", symbol: "photo.on.rectangle", badge: nil, action: {
++                    navigation.push(dataAndStorageController(context: context))
++                })
++            ],
++            [
++                .text(id: "camera-hd", text: "HD-отправка: при выборе фото или видео нажмите «HD» в окне отправки — Telegram отправит оригинальное качество. Зум в камере — жест щипка или ползунок в самой камере."),
++                kasperUnavailable("camera-na", "включить HD и зум по умолчанию из настроек — Telegram выбирает их заново при каждом открытии камеры.")
++            ]
++        ]
++    case .menu:
++        let hidden = KasperSettings.hiddenMenuItems
++        let items: [(String, String)] = [
++            ("myProfile", "Мой профиль"),
++            ("saved", "Избранное"),
++            ("calls", "Недавние звонки"),
++            ("devices", "Устройства"),
++            ("folders", "Папки с чатами"),
++            ("apps", "Мини-приложения"),
++            ("proxy", "Прокси"),
++            ("notifications", "Уведомления и звуки"),
++            ("privacy", "Конфиденциальность"),
++            ("data", "Данные и память"),
++            ("appearance", "Оформление"),
++            ("power", "Энергосбережение"),
++            ("language", "Язык"),
++            ("premium", "Telegram Premium"),
++            ("stars", "Звёзды Telegram"),
++            ("ton", "TON"),
++            ("business", "Telegram для бизнеса"),
++            ("gift", "Подарить Premium"),
++            ("passport", "Telegram Passport"),
++            ("watch", "Apple Watch"),
++            ("support", "Задать вопрос"),
++            ("faq", "Вопросы о Telegram"),
++            ("tips", "Возможности Telegram")
++        ]
++        var rows: KasperGroup = [.sectionTitle(id: "menu-title", text: "ПОКАЗЫВАТЬ В НАСТРОЙКАХ TELEGRAM")]
++        for (key, title) in items {
++            rows.append(.toggle(id: "menu-\(key)", title: title, value: !hidden.contains(key), enabled: true, set: { value in
++                var updated = KasperSettings.hiddenMenuItems
++                if value {
++                    updated.remove(key)
++                } else {
++                    updated.insert(key)
++                }
++                KasperSettings.hiddenMenuItems = updated
++                reload()
++            }))
++        }
++        rows.append(.text(id: "menu-footer", text: "Скрытые пункты пропадают из настроек Telegram, сами функции продолжают работать. Изменения видны, когда вы заново откроете вкладку «Настройки»."))
++        return [
++            [
++                .toggle(id: "menu-kasperBottom", title: "Kasper в самом низу настроек", value: KasperSettings.kasperAtBottom, enabled: true, set: { value in
++                    KasperSettings.kasperAtBottom = value
++                    reload()
++                }),
++                .text(id: "menu-kasper-footer", text: "По умолчанию пункт Kasper стоит сразу под вашим профилем.")
++            ],
++            rows
++        ]
++    case .icons:
++        let colored = KasperSettings.iconStyle == "color"
++        return [
++            [
++                .sectionTitle(id: "icons-title", text: "ИКОНКИ РАЗДЕЛА KASPER"),
++                .choice(id: "icons-mono", title: "Белые символы", selected: !colored, action: {
++                    KasperIconStyle.set("mono")
++                    reload()
++                }),
++                .choice(id: "icons-color", title: "Цветные подложки", selected: colored, action: {
++                    KasperIconStyle.set("color")
++                    reload()
++                }),
++                .text(id: "icons-footer", text: "Как иконки выглядят на главном экране Kasper: минималистичные белые символы или цветные квадраты, как в настройках iOS.")
++            ],
++            [
++                kasperUnavailable("icons-na", "замена иконок самого Telegram и иконки приложения — они вшиты в сборку картинками и анимациями. Иконка Kasper меняется только в новой сборке.")
 +            ]
 +        ]
 +    default:
-+        return [[kasperSoon("soon", "этот раздел в разработке.")]]
++        return [[.text(id: "empty", text: "Здесь пока нечего настраивать.")]]
 +    }
++}
++
++// MARK: - Иконки
++
++enum KasperIconStyle {
++    static let changedNotification = Notification.Name("kasper.iconStyle.changed")
++
++    static func set(_ style: String) {
++        KasperSettings.iconStyle = style
++        NotificationCenter.default.post(name: changedNotification, object: nil)
++    }
++}
++
++// MARK: - Плеер
++
++private func kasperPlayerRows(context: AccountContext, navigation: KasperNavigation, reload: @escaping () -> Void) -> [KasperGroup] {
++    let defaults = UserDefaults.standard
++    let eqEnabled = defaults.bool(forKey: "kasper.eq.enabled")
++    let bass = defaults.double(forKey: "kasper.eq.bass")
++    let mid = defaults.double(forKey: "kasper.eq.mid")
++    let treble = defaults.double(forKey: "kasper.eq.treble")
++
++    let presets: [(String, Double, Double, Double)] = [
++        ("Ровно", 0.0, 0.0, 0.0),
++        ("Больше баса", 6.0, 0.0, -1.0),
++        ("Вокал", -2.0, 4.0, 1.0),
++        ("Рок", 4.0, -1.0, 3.0),
++        ("Яркий звук", 0.0, 1.0, 5.0),
++        ("Меньше баса", -6.0, 0.0, 0.0)
++    ]
++    let apply: (Double, Double, Double) -> Void = { b, m, t in
++        defaults.set(b, forKey: "kasper.eq.bass")
++        defaults.set(m, forKey: "kasper.eq.mid")
++        defaults.set(t, forKey: "kasper.eq.treble")
++        reload()
++    }
++    func levelRows(_ id: String, _ title: String, _ value: Double, _ set: @escaping (Double) -> Void) -> [KasperRow] {
++        var rows: [KasperRow] = [.sectionTitle(id: "\(id)-title", text: title)]
++        for (label, level) in [("−6 дБ", -6.0), ("−3 дБ", -3.0), ("0", 0.0), ("+3 дБ", 3.0), ("+6 дБ", 6.0)] {
++            rows.append(.choice(id: "\(id)-\(level)", title: label, selected: abs(value - level) < 0.1, action: {
++                set(level)
++            }))
++        }
++        return rows
++    }
++
++    var presetRows: KasperGroup = [.sectionTitle(id: "eq-presets-title", text: "ПРЕДУСТАНОВКИ")]
++    for (name, b, m, t) in presets {
++        let selected = abs(bass - b) < 0.1 && abs(mid - m) < 0.1 && abs(treble - t) < 0.1
++        presetRows.append(.choice(id: "eq-preset-\(name)", title: name, selected: selected, action: {
++            apply(b, m, t)
++        }))
++    }
++
++    var groups: [KasperGroup] = [
++        [
++            .toggle(id: "eq-enabled", title: "Эквалайзер", value: eqEnabled, enabled: true, set: { value in
++                defaults.set(value, forKey: "kasper.eq.enabled")
++                reload()
++            }),
++            .text(id: "eq-footer", text: "Работает для музыки и видео в Kasper. Голосовые и кружки не меняются. Новые настройки применяются со следующего трека.")
++        ]
++    ]
++    if eqEnabled {
++        groups.append(presetRows)
++        groups.append(levelRows("eq-bass", "НИЗКИЕ ЧАСТОТЫ (БАСЫ)", bass, { value in apply(value, mid, treble) }))
++        groups.append(levelRows("eq-mid", "СРЕДНИЕ ЧАСТОТЫ", mid, { value in apply(bass, value, treble) }))
++        groups.append(levelRows("eq-treble", "ВЫСОКИЕ ЧАСТОТЫ", treble, { value in apply(bass, mid, value) }))
++    }
++
++    let voiceRate = KasperPlayerState.shared.voiceRate
++    let order = KasperPlayerState.shared.order
++    let looping = KasperPlayerState.shared.looping
++    let updatePlayback: (@escaping (MusicPlaybackSettings) -> MusicPlaybackSettings) -> Void = { f in
++        let _ = (updateMusicPlaybackSettingsInteractively(accountManager: context.sharedContext.accountManager, f)
++        |> deliverOnMainQueue).start(completed: {
++            KasperPlayerState.shared.refresh(context: context, completion: reload)
++        })
++    }
++    var speedRows: KasperGroup = [.sectionTitle(id: "speed-voice-title", text: "СКОРОСТЬ ГОЛОСОВЫХ ПО УМОЛЧАНИЮ")]
++    for (label, rate) in [("1×", AudioPlaybackRate.x1), ("1,5×", AudioPlaybackRate.x1_5), ("2×", AudioPlaybackRate.x2)] {
++        speedRows.append(.choice(id: "speed-\(label)", title: label, selected: voiceRate == rate, action: {
++            updatePlayback { $0.withUpdatedVoicePlaybackRate(rate) }
++        }))
++    }
++    groups.append(speedRows)
++
++    groups.append([
++        .sectionTitle(id: "order-title", text: "ПОРЯДОК ТРЕКОВ"),
++        .choice(id: "order-regular", title: "По порядку", selected: order == .regular, action: {
++            updatePlayback { $0.withUpdatedOrder(.regular) }
++        }),
++        .choice(id: "order-reversed", title: "С конца", selected: order == .reversed, action: {
++            updatePlayback { $0.withUpdatedOrder(.reversed) }
++        }),
++        .choice(id: "order-random", title: "Вперемешку", selected: order == .random, action: {
++            updatePlayback { $0.withUpdatedOrder(.random) }
++        })
++    ])
++    groups.append([
++        .sectionTitle(id: "loop-title", text: "АВТОПРОДОЛЖЕНИЕ"),
++        .choice(id: "loop-none", title: "Остановиться после списка", selected: looping == MusicPlaybackSettingsLooping.none, action: {
++            updatePlayback { $0.withUpdatedLooping(MusicPlaybackSettingsLooping.none) }
++        }),
++        .choice(id: "loop-all", title: "Повторять весь список", selected: looping == .all, action: {
++            updatePlayback { $0.withUpdatedLooping(.all) }
++        }),
++        .choice(id: "loop-item", title: "Повторять один трек", selected: looping == .item, action: {
++            updatePlayback { $0.withUpdatedLooping(.item) }
++        }),
++        .text(id: "player-footer", text: "Это те же настройки, что и в плеере Telegram, — они меняются в обе стороны."),
++        kasperUnavailable("crossfade-na", "кроссфейд — плеер Telegram играет треки строго по одному, плавно смешать два трека он не умеет.")
++    ])
++    return groups
++}
++
++/// Текущие настройки плеера Telegram (скорость голосовых, порядок, повтор) для экрана «Плеер».
++final class KasperPlayerState {
++    static let shared = KasperPlayerState()
++
++    private(set) var voiceRate: AudioPlaybackRate = .x1
++    private(set) var order: MusicPlaybackSettingsOrder = .regular
++    private(set) var looping: MusicPlaybackSettingsLooping = MusicPlaybackSettingsLooping.none
++    private let disposable = MetaDisposable()
++
++    func refresh(context: AccountContext, completion: @escaping () -> Void) {
++        self.disposable.set((context.sharedContext.accountManager.sharedData(keys: [ApplicationSpecificSharedDataKeys.musicPlaybackSettings])
++        |> take(1)
++        |> deliverOnMainQueue).start(next: { [weak self] sharedData in
++            let settings = sharedData.entries[ApplicationSpecificSharedDataKeys.musicPlaybackSettings]?.get(MusicPlaybackSettings.self) ?? MusicPlaybackSettings.defaultSettings
++            self?.voiceRate = settings.voicePlaybackRate
++            self?.order = settings.order
++            self?.looping = settings.looping
++            completion()
++        }))
++    }
++}
++
++// MARK: - История изменений
++
++func kasperEditHistoryController(context: AccountContext) -> ViewController {
++    let navigation = KasperNavigation()
++    let formatter = DateFormatter()
++    formatter.locale = Locale(identifier: "ru_RU")
++    formatter.dateFormat = "d MMM, HH:mm"
++
++    let groups = kasperNotifications(KasperEditHistory.changedNotification)
++    |> map { _ -> [KasperGroup] in
++        let entries = KasperEditHistory.all()
++        guard !entries.isEmpty else {
++            return [[.text(id: "edits-empty", text: "Пока пусто. Когда собеседник изменит сообщение, здесь появится, что было написано до правки.")]]
++        }
++        var rows: KasperGroup = []
++        for (index, entry) in entries.prefix(150).enumerated() {
++            var title = entry.chat.isEmpty ? "Чат" : entry.chat
++            if !entry.author.isEmpty && entry.author != entry.chat {
++                title += " · \(entry.author)"
++            }
++            let date = formatter.string(from: Date(timeIntervalSince1970: entry.date))
++            let text = "Было: \(entry.oldText)\nСтало: \(entry.newText)\n\(date)"
++            rows.append(.detail(id: "edit-\(index)-\(entry.peerId)-\(entry.messageId)-\(Int(entry.date))", title: title, text: text, copy: entry.oldText))
++        }
++        return [
++            rows,
++            [
++                .text(id: "edits-hint", text: "Нажмите на правку, чтобы скопировать прежний текст."),
++                .action(id: "edits-clear", title: "Очистить историю", destructive: true, action: {
++                    KasperEditHistory.clear()
++                })
++            ]
++        ]
++    }
++    return kasperListController(context: context, title: "История изменений", navigation: navigation, groups: groups)
 +}
 +
 +// MARK: - О Kasper
@@ -2265,7 +4215,28 @@ index 0000000..f1c23f7
 +        ("Ваш ID", .info, "айди id номер аккаунта"),
 +        ("Дата-центр", .info, "dc сервер соединение"),
 +        ("Дата создания аккаунта", .info, "регистрация возраст аккаунта"),
-+        ("Проверить обновления", .all, "обновление версия сборка ipa")
++        ("Проверить обновления", .all, "обновление версия сборка ipa"),
++        ("Скрывать «записывает голосовое…»", .ghost, "запись голосового кружка призрак"),
++        ("Скрывать просмотр историй", .ghost, "истории сторис stories просмотр призрак"),
++        ("Призрак в личных чатах и группах", .ghost, "личные группы каналы призрак отдельно"),
++        ("История изменений", .messages, "изменено правка редактирование было стало"),
++        ("Вибрация интерфейса", .extra, "вибрация отдача haptic тактильная"),
++        ("Скорость анимаций", .extra, "ускорение анимации скорость интерфейса"),
++        ("Реакции", .extra, "реакция быстрая лайк двойное нажатие"),
++        ("Тяжёлые эффекты", .extra, "энергосбережение батарея анимации эффекты"),
++        ("Локальный баланс звёзд", .stars, "звёзды звезды stars баланс счётчик"),
++        ("Шрифт приложения", .fonts, "шрифт font текст толщина свой шрифт ttf otf"),
++        ("Эквалайзер", .player, "эквалайзер басы высокие частоты звук музыка"),
++        ("Скорость голосовых", .player, "скорость воспроизведения голосовые 1.5 2x"),
++        ("Повтор и порядок треков", .player, "повтор автопродолжение перемешать порядок музыка"),
++        ("Радиостанции", .radio, "радио станции музыка поток избранное"),
++        ("Проверка ссылок", .virustotal, "virustotal вирус ссылка проверка безопасность"),
++        ("Проверка файлов", .virustotal, "virustotal вирус файл проверка"),
++        ("Установить плагин", .plugins, "плагин javascript js скрипт"),
++        ("Скрыть пункты настроек Telegram", .menu, "меню пункты скрыть premium звёзды бизнес"),
++        ("Порядок вкладок", .tabs, "вкладки контакты звонки чаты порядок"),
++        ("Цветные иконки", .icons, "иконки значки цветные подложки"),
++        ("Сохранение в галерею", .camera, "камера галерея hd качество кружки")
 +    ]
 +    for (title, page, keywords) in settings {
 +        result.append(KasperSearchTarget(title: title, page: page, keywords: keywords))
@@ -2484,6 +4455,141 @@ index 0000000..4ee5776
 +            return "≈ \(monthYear(date)), точность ниже"
 +        }
 +    }
++}
+diff --git a/submodules/TelegramCore/Sources/Kasper/KasperEditHistory.swift b/submodules/TelegramCore/Sources/Kasper/KasperEditHistory.swift
+new file mode 100644
+index 0000000..17e6e67
+--- /dev/null
++++ b/submodules/TelegramCore/Sources/Kasper/KasperEditHistory.swift
+@@ -0,0 +1,129 @@
++import Foundation
++import Postbox
++
++/// История изменений сообщений: когда собеседник правит сообщение, Kasper сохраняет
++/// прежний текст. Всё хранится только на этом устройстве, в файле рядом с настройками.
++public enum KasperEditHistory {
++    public struct Entry: Codable, Equatable {
++        public let chat: String
++        public let author: String
++        public let oldText: String
++        public let newText: String
++        public let date: Double
++        public let peerId: Int64
++        public let messageId: Int32
++    }
++
++    /// Больше не держим: старые правки вытесняются новыми.
++    private static let limit = 300
++    private static let lock = NSLock()
++    private static var cached: [Entry]?
++
++    /// Сообщение: история пополнилась или очищена.
++    public static let changedNotification = Notification.Name("kasper.editHistory.changed")
++
++    private static var fileUrl: URL? {
++        guard let directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
++            return nil
++        }
++        let folder = directory.appendingPathComponent("Kasper", isDirectory: true)
++        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true, attributes: nil)
++        return folder.appendingPathComponent("edit-history.json")
++    }
++
++    private static func loadLocked() -> [Entry] {
++        if let cached = cached {
++            return cached
++        }
++        var result: [Entry] = []
++        if let url = fileUrl, let data = try? Data(contentsOf: url), let decoded = try? JSONDecoder().decode([Entry].self, from: data) {
++            result = decoded
++        }
++        cached = result
++        return result
++    }
++
++    private static func saveLocked(_ entries: [Entry]) {
++        cached = entries
++        guard let url = fileUrl, let data = try? JSONEncoder().encode(entries) else {
++            return
++        }
++        try? data.write(to: url, options: .atomic)
++    }
++
++    /// Все сохранённые правки, новые сверху.
++    public static func all() -> [Entry] {
++        lock.lock()
++        let result = loadLocked()
++        lock.unlock()
++        return result
++    }
++
++    public static func clear() {
++        lock.lock()
++        saveLocked([])
++        lock.unlock()
++        NotificationCenter.default.post(name: changedNotification, object: nil)
++    }
++
++    static func record(_ entry: Entry) {
++        lock.lock()
++        var entries = loadLocked()
++        entries.insert(entry, at: 0)
++        if entries.count > limit {
++            entries.removeLast(entries.count - limit)
++        }
++        saveLocked(entries)
++        lock.unlock()
++        DispatchQueue.main.async {
++            NotificationCenter.default.post(name: changedNotification, object: nil)
++        }
++    }
++}
++
++private func kasperDisplayName(_ peer: Peer?) -> String {
++    guard let peer = peer else {
++        return ""
++    }
++    if let user = peer as? TelegramUser {
++        let name = [user.firstName ?? "", user.lastName ?? ""].filter({ !$0.isEmpty }).joined(separator: " ")
++        if !name.isEmpty {
++            return name
++        }
++        return user.addressName.map { "@\($0)" } ?? ""
++    }
++    if let group = peer as? TelegramGroup {
++        return group.title
++    }
++    if let channel = peer as? TelegramChannel {
++        return channel.title
++    }
++    return ""
++}
++
++/// Вызывается, когда с сервера пришла правка сообщения. Сохраняем только чужие правки
++/// текста: свои вы и так помните, а правки реакций и медиа текст не меняют.
++func kasperRecordEdit(previousMessage: Message, newText: String) {
++    guard KasperSettings.keepEditHistory, previousMessage.flags.contains(.Incoming) else {
++        return
++    }
++    let oldText = previousMessage.text
++    guard !oldText.isEmpty, oldText != newText, !oldText.hasSuffix(KasperSettings.deletedMarker) else {
++        return
++    }
++    let chatPeer = previousMessage.peers[previousMessage.id.peerId]
++    var chat = kasperDisplayName(chatPeer)
++    if chat.isEmpty {
++        chat = kasperDisplayName(previousMessage.author)
++    }
++    let author = kasperDisplayName(previousMessage.author)
++    KasperEditHistory.record(KasperEditHistory.Entry(
++        chat: chat,
++        author: author,
++        oldText: oldText,
++        newText: newText,
++        date: Date().timeIntervalSince1970,
++        peerId: previousMessage.id.peerId.id._internalGetInt64Value(),
++        messageId: previousMessage.id.id
++    ))
 +}
 diff --git a/submodules/TelegramCore/Sources/Kasper/KasperElevenLabs.swift b/submodules/TelegramCore/Sources/Kasper/KasperElevenLabs.swift
 new file mode 100644
@@ -2772,10 +4878,10 @@ index 0000000..eb0fccd
 +}
 diff --git a/submodules/TelegramCore/Sources/Kasper/KasperSettings.swift b/submodules/TelegramCore/Sources/Kasper/KasperSettings.swift
 new file mode 100644
-index 0000000..a440d9e
+index 0000000..c34aab7
 --- /dev/null
 +++ b/submodules/TelegramCore/Sources/Kasper/KasperSettings.swift
-@@ -0,0 +1,499 @@
+@@ -0,0 +1,672 @@
 +import Foundation
 +import Postbox
 +import SwiftSignalKit
@@ -2793,6 +4899,23 @@ index 0000000..a440d9e
 +        static let ghostHideReadReceipts = "kasper.ghost.hideReadReceipts"
 +        static let ghostHideTyping = "kasper.ghost.hideTyping"
 +        static let ghostHideListened = "kasper.ghost.hideListened"
++        static let ghostHideRecording = "kasper.ghost.hideRecording"
++        static let ghostHideStories = "kasper.ghost.hideStories"
++        static let ghostInPrivate = "kasper.ghost.inPrivate"
++        static let ghostInGroups = "kasper.ghost.inGroups"
++        static let keepEditHistory = "kasper.edits.keep"
++        static let hapticStrength = "kasper.haptics.strength"
++        static let animationSpeed = "kasper.ui.animationSpeed"
++        static let localStars = "kasper.stars.balance"
++        static let showLocalStars = "kasper.stars.show"
++        static let showContactsTab = "kasper.tabs.contacts"
++        static let showCallsTab = "kasper.tabs.calls"
++        static let chatsFirst = "kasper.tabs.chatsFirst"
++        static let hiddenMenuItems = "kasper.menu.hidden"
++        static let kasperAtBottom = "kasper.menu.kasperAtBottom"
++        static let iconStyle = "kasper.ui.iconStyle"
++        static let virusTotalKey = "kasper.vt.key"
++        static let virusTotalAutoCheck = "kasper.vt.autoCheck"
 +        static let keepDeleted = "kasper.deleted.keep"
 +        static let keepDeletedInGroups = "kasper.deleted.groups"
 +        static let deletedCaught = "kasper.deleted.caught"
@@ -2847,14 +4970,50 @@ index 0000000..a440d9e
 +        set { defaults.set(newValue, forKey: Key.ghostHideListened) }
 +    }
 +
++    /// Не отправлять «записывает голосовое…» и «записывает видео…».
++    /// Раньше это входило в «печатает…», поэтому по умолчанию берём то же значение.
++    public static var ghostHideRecording: Bool {
++        get { return flag(Key.ghostHideRecording, default: ghostHideTyping) }
++        set { defaults.set(newValue, forKey: Key.ghostHideRecording) }
++    }
++
++    /// Не сообщать автору, что вы посмотрели его историю.
++    public static var ghostHideStories: Bool {
++        get { return flag(Key.ghostHideStories, default: false) }
++        set { defaults.set(newValue, forKey: Key.ghostHideStories) }
++    }
++
++    /// Призрак действует в личных чатах.
++    public static var ghostInPrivate: Bool {
++        get { return flag(Key.ghostInPrivate, default: true) }
++        set { defaults.set(newValue, forKey: Key.ghostInPrivate) }
++    }
++
++    /// Призрак действует в группах, каналах и темах.
++    public static var ghostInGroups: Bool {
++        get { return flag(Key.ghostInGroups, default: true) }
++        set { defaults.set(newValue, forKey: Key.ghostInGroups) }
++    }
++
++    /// Действует ли призрак в этом чате: личные и группы настраиваются отдельно.
++    public static func ghostApplies(to peerId: PeerId) -> Bool {
++        let namespace = peerId.namespace
++        if namespace == Namespaces.Peer.CloudUser || namespace == Namespaces.Peer.SecretChat {
++            return ghostInPrivate
++        }
++        return ghostInGroups
++    }
++
 +    /// Все режимы призрака включены.
 +    public static var ghostEnabled: Bool {
-+        get { return ghostHideOnline && ghostHideReadReceipts && ghostHideTyping && ghostHideListened }
++        get { return ghostHideOnline && ghostHideReadReceipts && ghostHideTyping && ghostHideRecording && ghostHideListened && ghostHideStories }
 +        set {
 +            ghostHideOnline = newValue
 +            ghostHideReadReceipts = newValue
 +            ghostHideTyping = newValue
++            ghostHideRecording = newValue
 +            ghostHideListened = newValue
++            ghostHideStories = newValue
 +        }
 +    }
 +
@@ -2870,6 +5029,12 @@ index 0000000..a440d9e
 +    public static var keepDeletedInGroups: Bool {
 +        get { return flag(Key.keepDeletedInGroups, default: false) }
 +        set { defaults.set(newValue, forKey: Key.keepDeletedInGroups) }
++    }
++
++    /// Запоминать прежний текст сообщений, которые собеседник изменил.
++    public static var keepEditHistory: Bool {
++        get { return flag(Key.keepEditHistory, default: true) }
++        set { defaults.set(newValue, forKey: Key.keepEditHistory) }
 +    }
 +
 +    /// Счётчик пойманных удалённых сообщений (показывается в настройках).
@@ -2933,6 +5098,120 @@ index 0000000..a440d9e
 +    public static var realisticVoiceActive: Bool {
 +        let voice = self.voice
 +        return realisticVoice && voice != .none && !elevenLabsApiKey.isEmpty && !elevenLabsVoiceId(for: voice).isEmpty
++    }
++
++    // MARK: - Дополнительно
++
++    /// Сила вибрации интерфейса: 0 — выключена, 0.5 — мягкая, 1 — обычная.
++    /// Ключ читает и модуль Display (HapticFeedback), поэтому имя менять нельзя.
++    public static var hapticStrength: Double {
++        get {
++            if defaults.object(forKey: Key.hapticStrength) == nil {
++                return 1.0
++            }
++            return defaults.double(forKey: Key.hapticStrength)
++        }
++        set { defaults.set(max(0.0, min(1.0, newValue)), forKey: Key.hapticStrength) }
++    }
++
++    /// Сообщение: скорость анимаций изменилась.
++    public static let animationSpeedChangedNotification = Notification.Name("kasper.animationSpeed.changed")
++
++    /// Скорость анимаций интерфейса: 1 — обычная, больше — быстрее.
++    public static var animationSpeed: Double {
++        get {
++            let value = defaults.double(forKey: Key.animationSpeed)
++            return value > 0.0 ? value : 1.0
++        }
++        set {
++            defaults.set(max(1.0, min(2.0, newValue)), forKey: Key.animationSpeed)
++            NotificationCenter.default.post(name: animationSpeedChangedNotification, object: nil)
++        }
++    }
++
++    // MARK: - Локальные звёзды
++
++    /// Сообщение: изменился локальный баланс или его показ.
++    public static let localStarsChangedNotification = Notification.Name("kasper.localStars.changed")
++
++    /// Свой баланс звёзд — просто число на этом телефоне. Никак не связан с Telegram Stars,
++    /// не участвует в покупках и нигде не выдаётся за настоящий баланс.
++    public static var localStars: Int {
++        get { return defaults.integer(forKey: Key.localStars) }
++        set {
++            defaults.set(max(0, min(999_999_999, newValue)), forKey: Key.localStars)
++            NotificationCenter.default.post(name: localStarsChangedNotification, object: nil)
++        }
++    }
++
++    /// Показывать локальные звёзды в шапке раздела Kasper.
++    public static var showLocalStars: Bool {
++        get { return flag(Key.showLocalStars, default: true) }
++        set {
++            defaults.set(newValue, forKey: Key.showLocalStars)
++            NotificationCenter.default.post(name: localStarsChangedNotification, object: nil)
++        }
++    }
++
++    // MARK: - Вкладки и меню
++
++    /// Вкладка «Контакты» в нижней панели.
++    public static var showContactsTab: Bool {
++        get { return flag(Key.showContactsTab, default: true) }
++        set {
++            defaults.set(newValue, forKey: Key.showContactsTab)
++            NotificationCenter.default.post(name: tabsChangedNotification, object: nil)
++        }
++    }
++
++    /// Вкладка «Звонки»: работает вместе с настройкой Telegram «Показывать вкладку звонков».
++    public static var showCallsTab: Bool {
++        get { return flag(Key.showCallsTab, default: true) }
++        set {
++            defaults.set(newValue, forKey: Key.showCallsTab)
++            NotificationCenter.default.post(name: tabsChangedNotification, object: nil)
++        }
++    }
++
++    /// «Чаты» первой вкладкой слева.
++    public static var chatsFirst: Bool {
++        get { return flag(Key.chatsFirst, default: false) }
++        set {
++            defaults.set(newValue, forKey: Key.chatsFirst)
++            NotificationCenter.default.post(name: tabsChangedNotification, object: nil)
++        }
++    }
++
++    /// Пункты настроек Telegram, которые скрыты в меню.
++    public static var hiddenMenuItems: Set<String> {
++        get { return Set(defaults.stringArray(forKey: Key.hiddenMenuItems) ?? []) }
++        set { defaults.set(Array(newValue), forKey: Key.hiddenMenuItems) }
++    }
++
++    /// Пункт «Kasper» в самом низу настроек Telegram, а не под профилем.
++    public static var kasperAtBottom: Bool {
++        get { return flag(Key.kasperAtBottom, default: false) }
++        set { defaults.set(newValue, forKey: Key.kasperAtBottom) }
++    }
++
++    /// Вид иконок в разделе Kasper: "mono" — белые символы, "color" — на цветных подложках.
++    public static var iconStyle: String {
++        get { return defaults.string(forKey: Key.iconStyle) ?? "mono" }
++        set { defaults.set(newValue, forKey: Key.iconStyle) }
++    }
++
++    // MARK: - VirusTotal
++
++    /// Ключ API VirusTotal. Хранится только на этом устройстве.
++    public static var virusTotalKey: String {
++        get { return defaults.string(forKey: Key.virusTotalKey) ?? "" }
++        set { defaults.set(newValue.trimmingCharacters(in: .whitespacesAndNewlines), forKey: Key.virusTotalKey) }
++    }
++
++    /// Проверять ссылки из чатов перед открытием.
++    public static var virusTotalAutoCheck: Bool {
++        get { return flag(Key.virusTotalAutoCheck, default: false) }
++        set { defaults.set(newValue, forKey: Key.virusTotalAutoCheck) }
 +    }
 +
 +    // MARK: - Интерфейс
@@ -3275,8 +5554,362 @@ index 0000000..a440d9e
 +    }
 +    return false
 +}
+diff --git a/submodules/TelegramCore/Sources/Kasper/KasperVirusTotal.swift b/submodules/TelegramCore/Sources/Kasper/KasperVirusTotal.swift
+new file mode 100644
+index 0000000..e3ae9b9
+--- /dev/null
++++ b/submodules/TelegramCore/Sources/Kasper/KasperVirusTotal.swift
+@@ -0,0 +1,348 @@
++import Foundation
++import CryptoKit
++import SwiftSignalKit
++
++/// Результат проверки VirusTotal: сколько антивирусов что сказали.
++public struct KasperVirusTotalReport: Codable, Equatable {
++    public let malicious: Int
++    public let suspicious: Int
++    public let harmless: Int
++    public let undetected: Int
++    /// Анализ ещё идёт — числа пока неполные.
++    public let pending: Bool
++
++    public var total: Int {
++        return self.malicious + self.suspicious + self.harmless + self.undetected
++    }
++
++    public var isDangerous: Bool {
++        return self.malicious > 0 || self.suspicious > 0
++    }
++
++    public var verdict: String {
++        if self.pending && self.total == 0 {
++            return "⏳ Проверка ещё идёт — загляните через минуту"
++        }
++        if self.malicious > 0 {
++            return "⛔️ Опасно: \(self.malicious) из \(self.total) антивирусов"
++        }
++        if self.suspicious > 0 {
++            return "⚠️ Подозрительно: \(self.suspicious) из \(self.total) антивирусов"
++        }
++        return "✅ Чисто: 0 из \(self.total) антивирусов"
++    }
++}
++
++public enum KasperVirusTotalError: Error, Equatable {
++    case noKey
++    case notFound
++    case tooLarge
++    case network(String)
++    case http(Int, String)
++    case badResponse
++
++    public var text: String {
++        switch self {
++        case .noKey:
++            return "Не указан ключ VirusTotal"
++        case .notFound:
++            return "VirusTotal ещё не видел этот объект"
++        case .tooLarge:
++            return "Файл больше 32 МБ — такой через бесплатный ключ не проверить"
++        case let .network(message):
++            return "Нет связи с VirusTotal: \(message)"
++        case let .http(code, message):
++            switch code {
++            case 401:
++                return "Ключ VirusTotal не подходит"
++            case 429:
++                return "Лимит бесплатного ключа: не больше 4 проверок в минуту"
++            default:
++                return message.isEmpty ? "Ошибка VirusTotal (\(code))" : "Ошибка VirusTotal (\(code)): \(message)"
++            }
++        case .badResponse:
++            return "VirusTotal вернул непонятный ответ"
++        }
++    }
++}
++
++/// Запись в истории проверок.
++public struct KasperVirusTotalCheck: Codable, Equatable {
++    public let title: String
++    public let isFile: Bool
++    public let link: String
++    public let report: KasperVirusTotalReport
++    public let date: Double
++
++    public init(title: String, isFile: Bool, link: String, report: KasperVirusTotalReport, date: Double) {
++        self.title = title
++        self.isFile = isFile
++        self.link = link
++        self.report = report
++        self.date = date
++    }
++}
++
++/// Клиент VirusTotal API v3. Запросы идут с телефона с ключом пользователя.
++public enum KasperVirusTotal {
++    private static let base = "https://www.virustotal.com/api/v3"
++    public static let maxUploadSize = 32 * 1024 * 1024
++
++    private static let session: URLSession = {
++        let configuration = URLSessionConfiguration.default
++        configuration.timeoutIntervalForRequest = 30.0
++        configuration.timeoutIntervalForResource = 120.0
++        return URLSession(configuration: configuration)
++    }()
++
++    // MARK: Запросы
++
++    private static func request(_ request: URLRequest) -> Signal<[String: Any], KasperVirusTotalError> {
++        return Signal { subscriber in
++            let task = session.dataTask(with: request, completionHandler: { data, response, error in
++                if let error = error {
++                    if (error as NSError).code != NSURLErrorCancelled {
++                        subscriber.putError(.network(error.localizedDescription))
++                    }
++                    return
++                }
++                guard let response = response as? HTTPURLResponse else {
++                    subscriber.putError(.badResponse)
++                    return
++                }
++                let json = data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
++                if response.statusCode == 404 {
++                    subscriber.putError(.notFound)
++                    return
++                }
++                guard (200 ..< 300).contains(response.statusCode) else {
++                    let message = ((json?["error"] as? [String: Any])?["message"] as? String) ?? ""
++                    subscriber.putError(.http(response.statusCode, message))
++                    return
++                }
++                guard let json = json else {
++                    subscriber.putError(.badResponse)
++                    return
++                }
++                subscriber.putNext(json)
++                subscriber.putCompletion()
++            })
++            task.resume()
++            return ActionDisposable {
++                task.cancel()
++            }
++        }
++    }
++
++    private static func makeRequest(_ path: String, apiKey: String, method: String = "GET") -> URLRequest {
++        var request = URLRequest(url: URL(string: base + path)!)
++        request.httpMethod = method
++        request.setValue(apiKey, forHTTPHeaderField: "x-apikey")
++        request.setValue("application/json", forHTTPHeaderField: "Accept")
++        return request
++    }
++
++    private static func report(fromStats stats: [String: Any]?, pending: Bool) -> KasperVirusTotalReport {
++        return KasperVirusTotalReport(
++            malicious: (stats?["malicious"] as? Int) ?? 0,
++            suspicious: (stats?["suspicious"] as? Int) ?? 0,
++            harmless: (stats?["harmless"] as? Int) ?? 0,
++            undetected: (stats?["undetected"] as? Int) ?? 0,
++            pending: pending
++        )
++    }
++
++    private static func objectReport(_ json: [String: Any]) -> KasperVirusTotalReport {
++        let attributes = (json["data"] as? [String: Any])?["attributes"] as? [String: Any]
++        return report(fromStats: attributes?["last_analysis_stats"] as? [String: Any], pending: false)
++    }
++
++    /// Результат анализа по его id. Бесплатный ключ даёт 4 запроса в минуту,
++    /// поэтому ждём по 20 секунд и сдаёмся после трёх попыток — с частичным результатом.
++    private static func pollAnalysis(id: String, apiKey: String, attempt: Int = 0) -> Signal<KasperVirusTotalReport, KasperVirusTotalError> {
++        return request(makeRequest("/analyses/\(id)", apiKey: apiKey))
++        |> mapToSignal { json -> Signal<KasperVirusTotalReport, KasperVirusTotalError> in
++            let attributes = (json["data"] as? [String: Any])?["attributes"] as? [String: Any]
++            let completed = (attributes?["status"] as? String) == "completed"
++            let current = report(fromStats: attributes?["stats"] as? [String: Any], pending: !completed)
++            if completed || attempt >= 2 {
++                return .single(current)
++            }
++            return pollAnalysis(id: id, apiKey: apiKey, attempt: attempt + 1)
++            |> delay(20.0, queue: Queue.concurrentDefaultQueue())
++        }
++    }
++
++    // MARK: Ссылки
++
++    /// Идентификатор ссылки в VirusTotal: base64url без «=» в конце.
++    private static func urlIdentifier(_ url: String) -> String {
++        return Data(url.utf8).base64EncodedString()
++            .replacingOccurrences(of: "+", with: "-")
++            .replacingOccurrences(of: "/", with: "_")
++            .replacingOccurrences(of: "=", with: "")
++    }
++
++    /// Уже известный VirusTotal отчёт о ссылке. notFound — её ещё никто не проверял.
++    public static func lookupUrl(_ url: String, apiKey: String) -> Signal<KasperVirusTotalReport, KasperVirusTotalError> {
++        guard !apiKey.isEmpty else {
++            return .fail(.noKey)
++        }
++        return request(makeRequest("/urls/\(urlIdentifier(url))", apiKey: apiKey))
++        |> map { json in
++            return objectReport(json)
++        }
++    }
++
++    /// Полная проверка ссылки: берём готовый отчёт, а если его нет — отправляем на анализ.
++    public static func checkUrl(_ url: String, apiKey: String) -> Signal<KasperVirusTotalReport, KasperVirusTotalError> {
++        return lookupUrl(url, apiKey: apiKey)
++        |> `catch` { error -> Signal<KasperVirusTotalReport, KasperVirusTotalError> in
++            guard case .notFound = error else {
++                return .fail(error)
++            }
++            var submit = makeRequest("/urls", apiKey: apiKey, method: "POST")
++            submit.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
++            let encoded = url.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? url
++            submit.httpBody = "url=\(encoded)".data(using: .utf8)
++            return request(submit)
++            |> mapToSignal { json -> Signal<KasperVirusTotalReport, KasperVirusTotalError> in
++                guard let id = (json["data"] as? [String: Any])?["id"] as? String else {
++                    return .fail(.badResponse)
++                }
++                return pollAnalysis(id: id, apiKey: apiKey)
++                |> delay(15.0, queue: Queue.concurrentDefaultQueue())
++            }
++        }
++    }
++
++    public static func webLink(url: String) -> String {
++        let query = url.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? url
++        return "https://www.virustotal.com/gui/search/\(query)"
++    }
++
++    // MARK: Файлы
++
++    public static func sha256(_ data: Data) -> String {
++        return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
++    }
++
++    public static func webLink(sha256: String) -> String {
++        return "https://www.virustotal.com/gui/file/\(sha256)"
++    }
++
++    /// Отчёт о файле по его хэшу — сам файл никуда не уходит.
++    public static func lookupFile(sha256: String, apiKey: String) -> Signal<KasperVirusTotalReport, KasperVirusTotalError> {
++        guard !apiKey.isEmpty else {
++            return .fail(.noKey)
++        }
++        return request(makeRequest("/files/\(sha256)", apiKey: apiKey))
++        |> map { json in
++            return objectReport(json)
++        }
++    }
++
++    /// Загружает файл на анализ. Файл становится доступен сообществу VirusTotal,
++    /// поэтому вызывать только после явного согласия пользователя.
++    public static func uploadFile(data: Data, name: String, apiKey: String) -> Signal<KasperVirusTotalReport, KasperVirusTotalError> {
++        guard !apiKey.isEmpty else {
++            return .fail(.noKey)
++        }
++        guard data.count <= maxUploadSize else {
++            return .fail(.tooLarge)
++        }
++        var upload = makeRequest("/files", apiKey: apiKey, method: "POST")
++        let boundary = "KasperVT\(UInt64.random(in: 0 ... UInt64.max))"
++        upload.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
++        var body = Data()
++        let safeName = name.replacingOccurrences(of: "\"", with: "")
++        body.append("--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"\(safeName)\"\r\nContent-Type: application/octet-stream\r\n\r\n".data(using: .utf8)!)
++        body.append(data)
++        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
++        upload.httpBody = body
++        return request(upload)
++        |> mapToSignal { json -> Signal<KasperVirusTotalReport, KasperVirusTotalError> in
++            guard let id = (json["data"] as? [String: Any])?["id"] as? String else {
++                return .fail(.badResponse)
++            }
++            return pollAnalysis(id: id, apiKey: apiKey)
++            |> delay(20.0, queue: Queue.concurrentDefaultQueue())
++        }
++    }
++
++    // MARK: История
++
++    public static let historyChangedNotification = Notification.Name("kasper.virustotal.history")
++    private static let historyKey = "kasper.vt.history"
++    private static let historyLock = NSLock()
++
++    public static func history() -> [KasperVirusTotalCheck] {
++        historyLock.lock()
++        defer {
++            historyLock.unlock()
++        }
++        guard let data = UserDefaults.standard.data(forKey: historyKey), let items = try? JSONDecoder().decode([KasperVirusTotalCheck].self, from: data) else {
++            return []
++        }
++        return items
++    }
++
++    public static func addToHistory(_ check: KasperVirusTotalCheck) {
++        historyLock.lock()
++        var items: [KasperVirusTotalCheck] = []
++        if let data = UserDefaults.standard.data(forKey: historyKey), let decoded = try? JSONDecoder().decode([KasperVirusTotalCheck].self, from: data) {
++            items = decoded
++        }
++        items.insert(check, at: 0)
++        if items.count > 50 {
++            items.removeLast(items.count - 50)
++        }
++        if let data = try? JSONEncoder().encode(items) {
++            UserDefaults.standard.set(data, forKey: historyKey)
++        }
++        historyLock.unlock()
++        DispatchQueue.main.async {
++            NotificationCenter.default.post(name: historyChangedNotification, object: nil)
++        }
++    }
++
++    public static func clearHistory() {
++        historyLock.lock()
++        UserDefaults.standard.removeObject(forKey: historyKey)
++        historyLock.unlock()
++        NotificationCenter.default.post(name: historyChangedNotification, object: nil)
++    }
++
++    // MARK: Автопроверка ссылок из чатов
++
++    private static let approvedLock = NSLock()
++    private static var approved: Set<String> = []
++
++    /// Нужно ли проверить ссылку перед открытием. Ссылки Telegram не проверяем.
++    public static func shouldAutoCheck(_ url: String) -> Bool {
++        guard KasperSettings.virusTotalAutoCheck, !KasperSettings.virusTotalKey.isEmpty else {
++            return false
++        }
++        let lower = url.lowercased()
++        guard lower.hasPrefix("http://") || lower.hasPrefix("https://") else {
++            return false
++        }
++        if let host = URL(string: url)?.host?.lowercased() {
++            let trusted = ["t.me", "telegram.me", "telegram.org", "telegra.ph", "telesco.pe"]
++            if trusted.contains(where: { host == $0 || host.hasSuffix("." + $0) }) {
++                return false
++            }
++        }
++        approvedLock.lock()
++        let isApproved = approved.remove(url) != nil
++        approvedLock.unlock()
++        return !isApproved
++    }
++
++    /// Разрешить следующее открытие этой ссылки без проверки (после ответа пользователя).
++    public static func approveOnce(_ url: String) {
++        approvedLock.lock()
++        approved.insert(url)
++        approvedLock.unlock()
++    }
++}
 diff --git a/submodules/TelegramCore/Sources/State/AccountStateManagementUtils.swift b/submodules/TelegramCore/Sources/State/AccountStateManagementUtils.swift
-index 58db6c7..9ea5987 100644
+index 58db6c7..5b75bed 100644
 --- a/submodules/TelegramCore/Sources/State/AccountStateManagementUtils.swift
 +++ b/submodules/TelegramCore/Sources/State/AccountStateManagementUtils.swift
 @@ -4440,14 +4440,16 @@ func replayFinalState(
@@ -3298,6 +5931,15 @@ index 58db6c7..9ea5987 100644
              case let .DeleteMessages(ids):
                  _internal_deleteMessages(transaction: transaction, mediaBox: mediaBox, ids: ids, manualAddMessageThreadStatsDifference: { id, add, remove in
                      addMessageThreadStatsDifference(threadKey: id, remove: remove, addedMessagePeer: nil, addedMessageId: nil, isOutgoing: false)
+@@ -4488,6 +4490,8 @@ func replayFinalState(
+             case let .EditMessage(id, message):
+                 var generatedEvent: (reactionAuthor: Peer, reaction: MessageReaction.Reaction, message: Message, timestamp: Int32)?
+                 transaction.updateMessage(id, update: { previousMessage in
++                    // Kasper: запоминаем прежний текст, чтобы показать историю изменений
++                    kasperRecordEdit(previousMessage: previousMessage, newText: message.text)
+                     var updatedFlags = message.flags
+                     var updatedLocalTags = message.localTags
+                     var updatedAttributes = message.attributes
 diff --git a/submodules/TelegramCore/Sources/State/ManagedAccountPresence.swift b/submodules/TelegramCore/Sources/State/ManagedAccountPresence.swift
 index 8c8a4fa..a0a03f0 100644
 --- a/submodules/TelegramCore/Sources/State/ManagedAccountPresence.swift
@@ -3323,35 +5965,41 @@ index 8c8a4fa..a0a03f0 100644
              self.onlineTimer?.invalidate()
              self.onlineTimer = nil
 diff --git a/submodules/TelegramCore/Sources/State/ManagedLocalInputActivities.swift b/submodules/TelegramCore/Sources/State/ManagedLocalInputActivities.swift
-index 7acc37a..4b7e65f 100644
+index 7acc37a..8fbaac1 100644
 --- a/submodules/TelegramCore/Sources/State/ManagedLocalInputActivities.swift
 +++ b/submodules/TelegramCore/Sources/State/ManagedLocalInputActivities.swift
-@@ -175,6 +175,16 @@ private func requestActivity(postbox: Postbox, network: Network, accountPeerId:
+@@ -175,6 +175,22 @@ private func requestActivity(postbox: Postbox, network: Network, accountPeerId:
                  }
              }
              
-+            if KasperSettings.ghostHideTyping {
-+                // Kasper Ghost: не показываем собеседникам «печатает…» (индикатор голосового чата не трогаем)
-+                var isGroupCallActivity = false
-+                if let activity = activity, case .speakingInGroupCall = activity {
-+                    isGroupCallActivity = true
-+                }
-+                if !isGroupCallActivity {
-+                    return .complete()
++            if let activity = activity, KasperSettings.ghostApplies(to: peerId) {
++                // Kasper Ghost: не показываем «печатает…» и «записывает голосовое…»
++                // (индикатор голосового чата не трогаем)
++                switch activity {
++                case .speakingInGroupCall:
++                    break
++                case .recordingVoice, .recordingInstantVideo, .uploadingInstantVideo:
++                    if KasperSettings.ghostHideRecording {
++                        return .complete()
++                    }
++                default:
++                    if KasperSettings.ghostHideTyping {
++                        return .complete()
++                    }
 +                }
 +            }
              if let inputPeer = apiInputPeer(peer) {
                  var flags: Int32 = 0
                  let topMessageId = threadId.flatMap { Int32(clamping: $0) }
 diff --git a/submodules/TelegramCore/Sources/State/ManagedSynchronizeConsumeMessageContentsOperations.swift b/submodules/TelegramCore/Sources/State/ManagedSynchronizeConsumeMessageContentsOperations.swift
-index f6df475..2ad301d 100644
+index f6df475..11b9144 100644
 --- a/submodules/TelegramCore/Sources/State/ManagedSynchronizeConsumeMessageContentsOperations.swift
 +++ b/submodules/TelegramCore/Sources/State/ManagedSynchronizeConsumeMessageContentsOperations.swift
 @@ -110,6 +110,10 @@ func managedSynchronizeConsumeMessageContentOperations(postbox: Postbox, network
  }
  
  private func synchronizeConsumeMessageContents(transaction: Transaction, network: Network, stateManager: AccountStateManager, peerId: PeerId, operation: SynchronizeConsumeMessageContentsOperation) -> Signal<Void, NoError> {
-+    if KasperSettings.ghostHideListened {
++    if KasperSettings.ghostHideListened && KasperSettings.ghostApplies(to: peerId) {
 +        // Kasper Ghost: не сообщаем, что голосовое прослушано, а медиа «один раз» просмотрено
 +        return .complete()
 +    }
@@ -3381,14 +6029,14 @@ index 3530888..34e06e7 100644
          return postbox.transaction { [weak self] transaction -> Signal<Void, NoError> in
              guard let message = transaction.getMessage(messageId) else {
 diff --git a/submodules/TelegramCore/Sources/State/SynchronizePeerReadState.swift b/submodules/TelegramCore/Sources/State/SynchronizePeerReadState.swift
-index 6624257..23bb4cb 100644
+index 6624257..dd2db84 100644
 --- a/submodules/TelegramCore/Sources/State/SynchronizePeerReadState.swift
 +++ b/submodules/TelegramCore/Sources/State/SynchronizePeerReadState.swift
 @@ -227,6 +227,10 @@ private func validatePeerReadState(network: Network, postbox: Postbox, stateMana
  }
  
  private func pushPeerReadState(network: Network, postbox: Postbox, stateManager: AccountStateManager, peerId: PeerId, readState: PeerReadState) -> Signal<PeerReadState, PeerReadStateValidationError> {
-+    if KasperSettings.ghostHideReadReceipts {
++    if KasperSettings.ghostHideReadReceipts && KasperSettings.ghostApplies(to: peerId) {
 +        // Kasper Ghost: не сообщаем серверу о прочтении, сообщения прочитаны только локально
 +        return .single(readState)
 +    }
@@ -3449,7 +6097,7 @@ index ad6480a..5b547fb 100644
      }
      
 diff --git a/submodules/TelegramCore/Sources/TelegramEngine/Messages/ApplyMaxReadIndexInteractively.swift b/submodules/TelegramCore/Sources/TelegramEngine/Messages/ApplyMaxReadIndexInteractively.swift
-index ba4fea3..88567c3 100644
+index ba4fea3..71a4f24 100644
 --- a/submodules/TelegramCore/Sources/TelegramEngine/Messages/ApplyMaxReadIndexInteractively.swift
 +++ b/submodules/TelegramCore/Sources/TelegramEngine/Messages/ApplyMaxReadIndexInteractively.swift
 @@ -180,7 +180,10 @@ func _internal_toggleForumThreadUnreadMarkInteractively(transaction: Transaction
@@ -3458,7 +6106,7 @@ index ba4fea3..88567c3 100644
                  if let inputPeer = apiInputPeer(peer) {
 -                    let _ = network.request(Api.functions.messages.readDiscussion(peer: inputPeer, msgId: Int32(clamping: threadId), readMaxId: messageIndex.id.id)).start()
 +                    // Kasper Ghost: прочтение темы и комментариев остаётся локальным
-+                    if !KasperSettings.ghostHideReadReceipts {
++                    if !(KasperSettings.ghostHideReadReceipts && KasperSettings.ghostApplies(to: peer.id)) {
 +                        let _ = network.request(Api.functions.messages.readDiscussion(peer: inputPeer, msgId: Int32(clamping: threadId), readMaxId: messageIndex.id.id)).start()
 +                    }
                  }
@@ -3470,7 +6118,7 @@ index ba4fea3..88567c3 100644
              if let inputPeer = apiInputPeer(peer) {
 -                let _ = network.request(Api.functions.messages.readDiscussion(peer: inputPeer, msgId: Int32(clamping: threadId), readMaxId: messageIndex.id.id)).start()
 +                // Kasper Ghost: прочтение темы и комментариев остаётся локальным
-+                if !KasperSettings.ghostHideReadReceipts {
++                if !(KasperSettings.ghostHideReadReceipts && KasperSettings.ghostApplies(to: peer.id)) {
 +                    let _ = network.request(Api.functions.messages.readDiscussion(peer: inputPeer, msgId: Int32(clamping: threadId), readMaxId: messageIndex.id.id)).start()
 +                }
              }
@@ -3482,7 +6130,7 @@ index ba4fea3..88567c3 100644
                      if let inputPeer = apiInputPeer(peer) {
 -                        let _ = network.request(Api.functions.messages.readDiscussion(peer: inputPeer, msgId: Int32(clamping: item.threadId), readMaxId: messageIndex.id.id)).start()
 +                        // Kasper Ghost: прочтение темы и комментариев остаётся локальным
-+                        if !KasperSettings.ghostHideReadReceipts {
++                        if !(KasperSettings.ghostHideReadReceipts && KasperSettings.ghostApplies(to: peer.id)) {
 +                            let _ = network.request(Api.functions.messages.readDiscussion(peer: inputPeer, msgId: Int32(clamping: item.threadId), readMaxId: messageIndex.id.id)).start()
 +                        }
                      }
@@ -3501,6 +6149,34 @@ index 5f3ee4c..d899a39 100644
      return account.postbox.transaction { transaction -> [EphemeralDeleteMessageRequest] in
          var ephemeralRequests: [EphemeralDeleteMessageRequest] = []
          for messageId in messageIds where messageId.namespace == Namespaces.Message.EphemeralLocal {
+diff --git a/submodules/TelegramCore/Sources/TelegramEngine/Messages/Stories.swift b/submodules/TelegramCore/Sources/TelegramEngine/Messages/Stories.swift
+index fc104f5..5b76792 100644
+--- a/submodules/TelegramCore/Sources/TelegramEngine/Messages/Stories.swift
++++ b/submodules/TelegramCore/Sources/TelegramEngine/Messages/Stories.swift
+@@ -2086,6 +2086,11 @@ func _internal_markStoryAsSeen(account: Account, peerId: PeerId, id: Int32, asPi
+             }
+             #endif
+             
++            // Kasper Ghost: не засчитываем просмотр закреплённой истории
++            if KasperSettings.ghostHideStories {
++                return .complete()
++            }
++            
+             return account.network.request(Api.functions.stories.incrementStoryViews(peer: inputPeer, id: [id]))
+             |> `catch` { _ -> Signal<Api.Bool, NoError> in
+                 return .single(.boolFalse)
+@@ -2102,7 +2107,10 @@ func _internal_markStoryAsSeen(account: Account, peerId: PeerId, id: Int32, asPi
+             
+             #if DEBUG && false
+             #else
+-            _internal_addSynchronizeViewStoriesOperation(peerId: peerId, storyId: id, transaction: transaction)
++            // Kasper Ghost: история отмечается просмотренной только у вас, автор не видит просмотра
++            if !KasperSettings.ghostHideStories {
++                _internal_addSynchronizeViewStoriesOperation(peerId: peerId, storyId: id, transaction: transaction)
++            }
+             #endif
+             
+             return transaction.getPeer(peerId).flatMap(apiInputUser)
 diff --git a/submodules/TelegramUI/Components/Chat/ChatAvatarNavigationNode/Sources/ChatAvatarNavigationNode.swift b/submodules/TelegramUI/Components/Chat/ChatAvatarNavigationNode/Sources/ChatAvatarNavigationNode.swift
 index 533d492..6d4bc29 100644
 --- a/submodules/TelegramUI/Components/Chat/ChatAvatarNavigationNode/Sources/ChatAvatarNavigationNode.swift
@@ -3784,7 +6460,7 @@ index 806e652..a0ca35e 100644
              self.controller?.openAvatarForEditing()
          case .edit:
 diff --git a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoSettingsItems.swift b/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoSettingsItems.swift
-index c5f58f4..5e42671 100644
+index c5f58f4..90ca4b1 100644
 --- a/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoSettingsItems.swift
 +++ b/submodules/TelegramUI/Components/PeerInfo/PeerInfoScreen/Sources/PeerInfoSettingsItems.swift
 @@ -18,6 +18,7 @@ enum SettingsSection: Int, CaseIterable {
@@ -3869,6 +6545,114 @@ index c5f58f4..5e42671 100644
      items[.shortcuts]!.append(PeerInfoScreenDisclosureItem(id: 1, text: presentationData.strings.Settings_SavedMessages, icon: PresentationResourcesSettings.savedMessages, action: {
          interaction.openSettings(.savedMessages)
      }))
+@@ -326,12 +387,55 @@ func settingsItems(data: PeerInfoScreenData?, context: AccountContext, presentat
+         interaction.openSettings(.tips)
+     }))
+     
++    // Kasper: скрытые пункты меню и место раздела Kasper (раздел «Разделы меню»)
++    let kasperHidden = KasperSettings.hiddenMenuItems
++    if !kasperHidden.isEmpty {
++        let kasperKeys: [(SettingsSection, Int, String)] = [
++            (.myProfile, 0, "myProfile"),
++            (.shortcuts, 1, "saved"),
++            (.shortcuts, 2, "calls"),
++            (.shortcuts, 3, "devices"),
++            (.shortcuts, 4, "folders"),
++            (.advanced, 0, "notifications"),
++            (.advanced, 1, "privacy"),
++            (.advanced, 2, "data"),
++            (.advanced, 3, "appearance"),
++            (.advanced, 6, "power"),
++            (.advanced, 4, "language"),
++            (.payment, 100, "premium"),
++            (.payment, 102, "stars"),
++            (.payment, 103, "ton"),
++            (.payment, 104, "business"),
++            (.payment, 105, "gift"),
++            (.extra, 0, "passport"),
++            (.extra, 1, "watch"),
++            (.support, 0, "support"),
++            (.support, 1, "faq"),
++            (.support, 2, "tips")
++        ]
++        for (section, id, key) in kasperKeys where kasperHidden.contains(key) {
++            items[section]?.removeAll(where: { $0.id == AnyHashable(id) })
++        }
++        if kasperHidden.contains("apps") {
++            items[.apps] = []
++        }
++        if kasperHidden.contains("proxy") {
++            items[.proxy] = []
++        }
++    }
++    
+     var result: [(AnyHashable, [PeerInfoScreenItem])] = []
+     for section in SettingsSection.allCases {
++        if section == .kasper && KasperSettings.kasperAtBottom {
++            continue
++        }
+         if let sectionItems = items[section], !sectionItems.isEmpty {
+             result.append((section, sectionItems))
+         }
+     }
++    if KasperSettings.kasperAtBottom, let kasperItems = items[.kasper], !kasperItems.isEmpty {
++        result.append((SettingsSection.kasper, kasperItems))
++    }
+     return result
+ }
+ 
+diff --git a/submodules/TelegramUI/Sources/Kasper/KasperAnimationSpeed.swift b/submodules/TelegramUI/Sources/Kasper/KasperAnimationSpeed.swift
+new file mode 100644
+index 0000000..15c6aae
+--- /dev/null
++++ b/submodules/TelegramUI/Sources/Kasper/KasperAnimationSpeed.swift
+@@ -0,0 +1,46 @@
++import Foundation
++import UIKit
++import TelegramCore
++
++/// Ускорение анимаций интерфейса из раздела «Дополнительно».
++/// Меняет скорость Core Animation у окон Kasper; окна клавиатуры не трогаем,
++/// иначе она начинает дёргаться относительно поля ввода.
++final class KasperAnimationSpeed {
++    static let shared = KasperAnimationSpeed()
++
++    private var observers: [NSObjectProtocol] = []
++
++    func start() {
++        guard self.observers.isEmpty else {
++            return
++        }
++        let center = NotificationCenter.default
++        self.observers.append(center.addObserver(forName: UIWindow.didBecomeVisibleNotification, object: nil, queue: .main, using: { [weak self] _ in
++            self?.apply()
++        }))
++        self.observers.append(center.addObserver(forName: KasperSettings.animationSpeedChangedNotification, object: nil, queue: .main, using: { [weak self] _ in
++            self?.apply()
++        }))
++        DispatchQueue.main.async { [weak self] in
++            self?.apply()
++        }
++    }
++
++    private func apply() {
++        let speed = Float(KasperSettings.animationSpeed)
++        for scene in UIApplication.shared.connectedScenes {
++            guard let windowScene = scene as? UIWindowScene else {
++                continue
++            }
++            for window in windowScene.windows {
++                let className = NSStringFromClass(type(of: window))
++                if className.contains("Keyboard") || className.contains("TextEffects") {
++                    continue
++                }
++                if window.layer.speed != speed {
++                    window.layer.speed = speed
++                }
++            }
++        }
++    }
++}
 diff --git a/submodules/TelegramUI/Sources/Kasper/KasperElevenLabsRecording.swift b/submodules/TelegramUI/Sources/Kasper/KasperElevenLabsRecording.swift
 new file mode 100644
 index 0000000..bba3a3d
@@ -4618,11 +7402,52 @@ index feca4e4..8d11e61 100644
              previewState
          ) |> map { data, preview -> RecordedAudioData? in
              if let data {
+diff --git a/submodules/TelegramUI/Sources/OpenUrl.swift b/submodules/TelegramUI/Sources/OpenUrl.swift
+index 6c964ba..84c4a57 100644
+--- a/submodules/TelegramUI/Sources/OpenUrl.swift
++++ b/submodules/TelegramUI/Sources/OpenUrl.swift
+@@ -362,6 +362,36 @@ private func makeTelegramUrl(_ path: String, queryItems: [URLQueryItem] = []) ->
+ }
+ 
+ func openExternalUrlImpl(context: AccountContext, urlContext: OpenURLContext, url: String, forceExternal: Bool, presentationData: PresentationData, navigationController: NavigationController?, dismissInput: @escaping () -> Void) {
++    // Kasper: перед открытием ссылки спрашиваем VirusTotal (раздел VirusTotal → «Проверять ссылки»).
++    // Если отчёта нет или VirusTotal не ответил за 6 секунд — открываем как обычно.
++    if KasperVirusTotal.shouldAutoCheck(url) {
++        let reopen: () -> Void = {
++            KasperVirusTotal.approveOnce(url)
++            openExternalUrlImpl(context: context, urlContext: urlContext, url: url, forceExternal: forceExternal, presentationData: presentationData, navigationController: navigationController, dismissInput: dismissInput)
++        }
++        let lookup = KasperVirusTotal.lookupUrl(url, apiKey: KasperSettings.virusTotalKey)
++        |> map(Optional.init)
++        |> `catch` { _ -> Signal<KasperVirusTotalReport?, NoError> in
++            return .single(nil)
++        }
++        |> timeout(6.0, queue: Queue.mainQueue(), alternate: .single(nil))
++        let _ = (lookup
++        |> take(1)
++        |> deliverOnMainQueue).start(next: { report in
++            guard let report = report, report.isDangerous else {
++                reopen()
++                return
++            }
++            context.sharedContext.presentGlobalController(textAlertController(context: context, title: "VirusTotal предупреждает", text: "\(report.verdict) отмечают эту ссылку.\n\n\(url)", actions: [
++                TextAlertAction(type: .genericAction, title: "Открыть всё равно", action: {
++                    reopen()
++                }),
++                TextAlertAction(type: .defaultAction, title: presentationData.strings.Common_Cancel, action: {
++                })
++            ], actionLayout: .vertical), nil)
++        })
++        return
++    }
+     if forceExternal || url.lowercased().hasPrefix("tel:") || url.lowercased().hasPrefix("calshow:") {
+         if url.lowercased().hasPrefix("tel:+888") {
+             context.sharedContext.presentGlobalController(textAlertController(context: context, title: nil, text: presentationData.strings.Conversation_CantPhoneCallAnonymousNumberError, actions: [
 diff --git a/submodules/TelegramUI/Sources/SharedAccountContext.swift b/submodules/TelegramUI/Sources/SharedAccountContext.swift
-index 5637c9e..853020a 100644
+index 5637c9e..ae3355f 100644
 --- a/submodules/TelegramUI/Sources/SharedAccountContext.swift
 +++ b/submodules/TelegramUI/Sources/SharedAccountContext.swift
-@@ -518,7 +518,10 @@ public final class SharedAccountContextImpl: SharedAccountContext {
+@@ -518,7 +518,12 @@ public final class SharedAccountContextImpl: SharedAccountContext {
          let immediateExperimentalUISettingsValue = self.immediateExperimentalUISettingsValue
          let _ = immediateExperimentalUISettingsValue.swap(initialPresentationDataAndSettings.experimentalUISettings)
          
@@ -4631,10 +7456,12 @@ index 5637c9e..853020a 100644
 +        
 +        // Kasper: копия скриншота с фирменной надписью
 +        KasperScreenshotBadge.shared.start()
++        // Kasper: ускорение анимаций из раздела «Дополнительно»
++        KasperAnimationSpeed.shared.start()
          
          self.experimentalUISettingsDisposable = (self.accountManager.sharedData(keys: [ApplicationSpecificSharedDataKeys.experimentalUISettings])
          |> deliverOnMainQueue).start(next: { sharedData in
-@@ -526,7 +529,7 @@ public final class SharedAccountContextImpl: SharedAccountContext {
+@@ -526,7 +531,7 @@ public final class SharedAccountContextImpl: SharedAccountContext {
                  let _ = immediateExperimentalUISettingsValue.swap(settings)
                  
                  flatBuffers_checkedGet = settings.checkSerializedData
@@ -4644,7 +7471,7 @@ index 5637c9e..853020a 100644
          })
          
 diff --git a/submodules/TelegramUI/Sources/TelegramRootController.swift b/submodules/TelegramUI/Sources/TelegramRootController.swift
-index c5ea211..04f1b78 100644
+index c5ea211..1c15d9a 100644
 --- a/submodules/TelegramUI/Sources/TelegramRootController.swift
 +++ b/submodules/TelegramUI/Sources/TelegramRootController.swift
 @@ -80,6 +80,11 @@ public final class TelegramRootController: NavigationController, TelegramRootCon
@@ -4669,7 +7496,22 @@ index c5ea211..04f1b78 100644
      }
      
      public func getContactsController() -> ViewController? {
-@@ -237,9 +245,23 @@ public final class TelegramRootController: NavigationController, TelegramRootCon
+@@ -213,12 +221,8 @@ public final class TelegramRootController: NavigationController, TelegramRootCon
+         contactsController.switchToChatsController = {  [weak self] in
+             self?.openChatsController(activateSearch: false)
+         }
+-        controllers.append(contactsController)
+-        
+-        if showCallsTab {
+-            controllers.append(callListController)
+-        }
+-        controllers.append(chatListController)
++        // Kasper: какие вкладки показывать и в каком порядке
++        controllers.append(contentsOf: kasperMainTabs(contacts: contactsController, calls: showCallsTab ? callListController : nil, chats: chatListController))
+         
+         var restoreSettignsController: (ViewController & SettingsController)?
+         if let sharedContext = self.context.sharedContext as? SharedAccountContextImpl {
+@@ -237,9 +241,23 @@ public final class TelegramRootController: NavigationController, TelegramRootCon
              strongSelf.pushViewController(debugController(sharedContext: strongSelf.context.sharedContext, context: strongSelf.context))
          }
          accountSettingsController.parentController = self
@@ -4695,21 +7537,52 @@ index c5ea211..04f1b78 100644
          
          self.contactsController = contactsController
          self.callListController = callListController
-@@ -259,11 +281,30 @@ public final class TelegramRootController: NavigationController, TelegramRootCon
-             controllers.append(self.callListController!)
+@@ -254,16 +272,57 @@ public final class TelegramRootController: NavigationController, TelegramRootCon
+             return
          }
-         controllers.append(self.chatListController!)
+         var controllers: [ViewController] = []
+-        controllers.append(self.contactsController!)
+-        if showCallsTab {
+-            controllers.append(self.callListController!)
++        controllers.append(contentsOf: kasperMainTabs(contacts: self.contactsController!, calls: showCallsTab ? self.callListController! : nil, chats: self.chatListController!))
 +        self.kasperShowCallsTab = showCallsTab
 +        if let kasperProfileController = self.kasperMakeProfileTabController() {
 +            controllers.append(kasperProfileController)
 +        } else {
 +            self.kasperProfileController = nil
-+        }
+         }
+-        controllers.append(self.chatListController!)
          controllers.append(self.accountSettingsController!)
          
          rootTabController.setControllers(controllers, selectedIndex: nil)
      }
      
++    /// Kasper: «Контакты», «Звонки» и «Чаты» в выбранном порядке.
++    /// Вкладку чатов скрыть нельзя, остальные — по настройкам раздела «Вкладки».
++    private func kasperMainTabs(contacts: ViewController, calls: ViewController?, chats: ViewController) -> [ViewController] {
++        var result: [ViewController] = []
++        let showContacts = KasperSettings.showContactsTab
++        let showCalls = calls != nil && KasperSettings.showCallsTab
++        if KasperSettings.chatsFirst {
++            result.append(chats)
++            if showContacts {
++                result.append(contacts)
++            }
++            if showCalls, let calls = calls {
++                result.append(calls)
++            }
++        } else {
++            if showContacts {
++                result.append(contacts)
++            }
++            if showCalls, let calls = calls {
++                result.append(calls)
++            }
++            result.append(chats)
++        }
++        return result
++    }
++    
 +    private func kasperMakeProfileTabController() -> ViewController? {
 +        guard KasperSettings.profileTab else {
 +            return nil
@@ -4726,7 +7599,7 @@ index c5ea211..04f1b78 100644
      public func openChatsController(activateSearch: Bool, filter: ChatListSearchFilter = .chats, query: String? = nil) {
          guard let rootTabController = self.rootTabController else {
              return
-@@ -301,7 +342,7 @@ public final class TelegramRootController: NavigationController, TelegramRootCon
+@@ -301,7 +360,7 @@ public final class TelegramRootController: NavigationController, TelegramRootCon
          
          self.popToRoot(animated: false)
          
@@ -4735,7 +7608,7 @@ index c5ea211..04f1b78 100644
              rootTabController.selectedIndex = index
          }
          
-@@ -813,7 +854,7 @@ public final class TelegramRootController: NavigationController, TelegramRootCon
+@@ -813,7 +872,7 @@ public final class TelegramRootController: NavigationController, TelegramRootCon
          
          self.popToRoot(animated: false)
      
