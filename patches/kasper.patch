@@ -2849,10 +2849,10 @@ index c5f58f4..5e42671 100644
      }))
 diff --git a/submodules/TelegramUI/Sources/Kasper/KasperElevenLabsRecording.swift b/submodules/TelegramUI/Sources/Kasper/KasperElevenLabsRecording.swift
 new file mode 100644
-index 0000000..303b30d
+index 0000000..bba3a3d
 --- /dev/null
 +++ b/submodules/TelegramUI/Sources/Kasper/KasperElevenLabsRecording.swift
-@@ -0,0 +1,369 @@
+@@ -0,0 +1,394 @@
 +import Foundation
 +import AudioToolbox
 +import SwiftSignalKit
@@ -2880,6 +2880,11 @@ index 0000000..303b30d
 +    private static func deadline(for duration: Double) -> Double {
 +        return min(20.0, max(8.0, duration * 1.2 + 4.0))
 +    }
++
++    /// Своя последовательная очередь. Раньше тут была общая параллельная очередь, и
++    /// deliverOn на ней мог доставить «готово» раньше самого ответа: ответ терялся,
++    /// голосовое не отправлялось никогда, и помогал только перезапуск.
++    private static let workQueue = Queue(name: "org.kasper.elevenlabs")
 +
 +    private static let lock = NSLock()
 +    private static var cacheKey: String?
@@ -2911,7 +2916,7 @@ index 0000000..303b30d
 +        KasperElevenLabsRecording.pending[key] = promise
 +        KasperElevenLabsRecording.lock.unlock()
 +
-+        let queue = Queue.concurrentDefaultQueue()
++        let queue = KasperElevenLabsRecording.workQueue
 +
 +        let deadline = KasperElevenLabsRecording.deadline(for: data.duration)
 +        let converted = KasperElevenLabsRecording.convert(data, voice: voice, voiceId: voiceId, apiKey: apiKey, queue: queue)
@@ -2923,8 +2928,28 @@ index 0000000..303b30d
 +        }
 +        |> runOn(queue)
 +
-+        let work = converted
++        let limited = converted
 +        |> timeout(deadline, queue: queue, alternate: tooSlow)
++
++        // Страховка: что бы ни случилось внутри, ответ будет ровно один. Если цепочка
++        // завершилась без результата, отправляем запись с обычным эффектом, а не висим.
++        let work = Signal<RecordedAudioData, NoError> { subscriber in
++            let delivered = Atomic<Bool>(value: false)
++            return limited.start(next: { result in
++                let _ = delivered.swap(true)
++                subscriber.putNext(result)
++            }, completed: {
++                if !delivered.swap(true) {
++                    KasperSettings.elevenLabsLastError = "Не удалось получить ответ ElevenLabs — отправлено с обычным эффектом"
++                    queue.async {
++                        subscriber.putNext(KasperElevenLabsRecording.localEffect(data))
++                        subscriber.putCompletion()
++                    }
++                } else {
++                    subscriber.putCompletion()
++                }
++            })
++        }
 +        |> afterNext { result in
 +            KasperElevenLabsRecording.lock.lock()
 +            KasperElevenLabsRecording.cacheKey = key
