@@ -609,12 +609,223 @@ index 2f8b30b..704f26a 100644
 +        completion(exportSession.status == .completed)
 +    }
 +}
+diff --git a/submodules/SettingsUI/Sources/Kasper/KasperHeaderItem.swift b/submodules/SettingsUI/Sources/Kasper/KasperHeaderItem.swift
+new file mode 100644
+index 0000000..d103e96
+--- /dev/null
++++ b/submodules/SettingsUI/Sources/Kasper/KasperHeaderItem.swift
+@@ -0,0 +1,113 @@
++import Foundation
++import UIKit
++import Display
++import AsyncDisplayKit
++import SwiftSignalKit
++import TelegramPresentationData
++import ItemListUI
++
++/// Шапка раздела Kasper: крупный знак, название и версия — как в оболочке Whitegram.
++final class KasperHeaderItem: ListViewItem, ItemListItem {
++    let presentationData: ItemListPresentationData
++    let title: String
++    let version: String
++    let sectionId: ItemListSectionId
++    let isAlwaysPlain: Bool = true
++
++    init(presentationData: ItemListPresentationData, title: String, version: String, sectionId: ItemListSectionId) {
++        self.presentationData = presentationData
++        self.title = title
++        self.version = version
++        self.sectionId = sectionId
++    }
++
++    func nodeConfiguredForParams(async: @escaping (@escaping () -> Void) -> Void, params: ListViewItemLayoutParams, synchronousLoads: Bool, previousItem: ListViewItem?, nextItem: ListViewItem?, completion: @escaping (ListViewItemNode, @escaping () -> (Signal<Void, NoError>?, (ListViewItemApply) -> Void)) -> Void) {
++        async {
++            let node = KasperHeaderItemNode()
++            let (layout, apply) = node.asyncLayout()(self, params)
++            node.contentSize = layout.contentSize
++            node.insets = layout.insets
++            Queue.mainQueue().async {
++                completion(node, {
++                    return (nil, { _ in apply() })
++                })
++            }
++        }
++    }
++
++    func updateNode(async: @escaping (@escaping () -> Void) -> Void, node: @escaping () -> ListViewItemNode, params: ListViewItemLayoutParams, previousItem: ListViewItem?, nextItem: ListViewItem?, animation: ListViewItemUpdateAnimation, completion: @escaping (ListViewItemNodeLayout, @escaping (ListViewItemApply) -> Void) -> Void) {
++        Queue.mainQueue().async {
++            guard let nodeValue = node() as? KasperHeaderItemNode else {
++                return
++            }
++            let makeLayout = nodeValue.asyncLayout()
++            async {
++                let (layout, apply) = makeLayout(self, params)
++                Queue.mainQueue().async {
++                    completion(layout, { _ in
++                        apply()
++                    })
++                }
++            }
++        }
++    }
++}
++
++final class KasperHeaderItemNode: ListViewItemNode {
++    private let logoNode: ASImageNode
++    private let titleNode: TextNode
++    private let versionNode: TextNode
++    private var currentTheme: PresentationTheme?
++
++    init() {
++        self.logoNode = ASImageNode()
++        self.logoNode.displaysAsynchronously = false
++        self.logoNode.isLayerBacked = true
++        self.titleNode = TextNode()
++        self.titleNode.isUserInteractionEnabled = false
++        self.versionNode = TextNode()
++        self.versionNode.isUserInteractionEnabled = false
++
++        super.init(layerBacked: false)
++
++        self.addSubnode(self.logoNode)
++        self.addSubnode(self.titleNode)
++        self.addSubnode(self.versionNode)
++    }
++
++    func asyncLayout() -> (_ item: KasperHeaderItem, _ params: ListViewItemLayoutParams) -> (ListViewItemNodeLayout, () -> Void) {
++        let makeTitleLayout = TextNode.asyncLayout(self.titleNode)
++        let makeVersionLayout = TextNode.asyncLayout(self.versionNode)
++        let currentTheme = self.currentTheme
++
++        return { [weak self] item, params in
++            let theme = item.presentationData.theme
++            let logoSize: CGFloat = 104.0
++            let width = params.width - params.leftInset - params.rightInset
++
++            let (titleLayout, titleApply) = makeTitleLayout(TextNodeLayoutArguments(attributedString: NSAttributedString(string: item.title, font: Font.bold(34.0), textColor: theme.list.itemPrimaryTextColor), backgroundColor: nil, maximumNumberOfLines: 1, truncationType: .end, constrainedSize: CGSize(width: width - 32.0, height: 60.0), alignment: .center, cutout: nil, insets: UIEdgeInsets()))
++            let (versionLayout, versionApply) = makeVersionLayout(TextNodeLayoutArguments(attributedString: NSAttributedString(string: item.version, font: Font.semibold(20.0), textColor: theme.list.itemSecondaryTextColor), backgroundColor: nil, maximumNumberOfLines: 1, truncationType: .end, constrainedSize: CGSize(width: width - 32.0, height: 40.0), alignment: .center, cutout: nil, insets: UIEdgeInsets()))
++
++            let topInset: CGFloat = 24.0
++            let height = topInset + logoSize + 22.0 + titleLayout.size.height + 4.0 + versionLayout.size.height + 18.0
++            let layout = ListViewItemNodeLayout(contentSize: CGSize(width: params.width, height: height), insets: UIEdgeInsets())
++
++            return (layout, {
++                guard let strongSelf = self else {
++                    return
++                }
++                if currentTheme !== theme {
++                    strongSelf.currentTheme = theme
++                    strongSelf.logoNode.image = kasperLogoImage(size: logoSize, color: theme.list.itemPrimaryTextColor)
++                }
++                let _ = titleApply()
++                let _ = versionApply()
++
++                strongSelf.logoNode.frame = CGRect(x: floor((params.width - logoSize) / 2.0), y: topInset, width: logoSize, height: logoSize)
++                let titleY = topInset + logoSize + 22.0
++                strongSelf.titleNode.frame = CGRect(x: floor((params.width - titleLayout.size.width) / 2.0), y: titleY, width: titleLayout.size.width, height: titleLayout.size.height)
++                strongSelf.versionNode.frame = CGRect(x: floor((params.width - versionLayout.size.width) / 2.0), y: titleY + titleLayout.size.height + 4.0, width: versionLayout.size.width, height: versionLayout.size.height)
++            })
++        }
++    }
++}
+diff --git a/submodules/SettingsUI/Sources/Kasper/KasperLogo.swift b/submodules/SettingsUI/Sources/Kasper/KasperLogo.swift
+new file mode 100644
+index 0000000..6e6536a
+--- /dev/null
++++ b/submodules/SettingsUI/Sources/Kasper/KasperLogo.swift
+@@ -0,0 +1,86 @@
++import Foundation
++import UIKit
++
++/// Знак Kasper (три завитка, как на иконке приложения), нарисованный кодом —
++/// чтобы не тащить в сборку отдельную картинку и красить его в цвет темы.
++func kasperLogoImage(size: CGFloat, color: UIColor) -> UIImage {
++    let renderer = UIGraphicsImageRenderer(size: CGSize(width: size, height: size))
++    return renderer.image { _ in
++        // Завитки занимают область примерно 208...811 из 1024 — вписываем её в квадрат.
++        let origin: CGFloat = 199.0
++        let span: CGFloat = 620.0
++        let scale = size / span
++        func pt(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
++            return CGPoint(x: (x - origin) * scale, y: (y - origin) * scale)
++        }
++        color.setFill()
++        do {
++            let p = UIBezierPath()
++            p.move(to: pt(321.3, 388.1))
++            p.addCurve(to: pt(481.3, 240.9), controlPoint1: pt(315.7, 293.7), controlPoint2: pt(390.1, 234.5))
++            p.addCurve(to: pt(607.7, 418.5), controlPoint1: pt(582.1, 248.9), controlPoint2: pt(633.3, 333.7))
++            p.addCurve(to: pt(534.1, 554.5), controlPoint1: pt(586.9, 482.5), controlPoint2: pt(546.9, 517.7))
++            p.addCurve(to: pt(482.9, 573.7), controlPoint1: pt(526.1, 580.1), controlPoint2: pt(498.9, 591.3))
++            p.addCurve(to: pt(487.7, 501.7), controlPoint1: pt(470.1, 559.3), controlPoint2: pt(474.9, 527.3))
++            p.addCurve(to: pt(511.7, 421.7), controlPoint1: pt(500.5, 476.1), controlPoint2: pt(511.7, 452.1))
++            p.addCurve(to: pt(444.5, 357.7), controlPoint1: pt(513.3, 378.5), controlPoint2: pt(481.3, 354.5))
++            p.addCurve(to: pt(385.3, 424.9), controlPoint1: pt(407.7, 360.9), controlPoint2: pt(385.3, 388.1))
++            p.addCurve(to: pt(345.3, 447.3), controlPoint1: pt(385.3, 445.7), controlPoint2: pt(364.5, 458.5))
++            p.addCurve(to: pt(321.3, 388.1), controlPoint1: pt(329.3, 437.7), controlPoint2: pt(322.1, 415.3))
++            p.close()
++            p.fill()
++        }
++        do {
++            let p = UIBezierPath()
++            p.move(to: pt(711.4, 454.1))
++            p.addCurve(to: pt(758.9, 666.3), controlPoint1: pt(795.9, 496.5), controlPoint2: pt(810.0, 590.5))
++            p.addCurve(to: pt(541.8, 686.9), controlPoint1: pt(701.5, 749.6), controlPoint2: pt(602.5, 751.5))
++            p.addCurve(to: pt(460.9, 555.2), controlPoint1: pt(496.8, 636.9), controlPoint2: pt(486.3, 584.7))
++            p.addCurve(to: pt(469.8, 501.3), controlPoint1: pt(442.7, 535.5), controlPoint2: pt(446.6, 506.3))
++            p.addCurve(to: pt(529.8, 541.4), controlPoint1: pt(488.7, 497.4), controlPoint2: pt(514.0, 517.5))
++            p.addCurve(to: pt(587.1, 602.2), controlPoint1: pt(545.6, 565.3), controlPoint2: pt(560.7, 587.0))
++            p.addCurve(to: pt(676.1, 576.0), controlPoint1: pt(623.7, 625.2), controlPoint2: pt(660.5, 609.5))
++            p.addCurve(to: pt(647.5, 491.1), controlPoint1: pt(691.7, 542.5), controlPoint2: pt(679.4, 509.5))
++            p.addCurve(to: pt(648.1, 445.3), controlPoint1: pt(629.5, 480.7), controlPoint2: pt(628.8, 456.3))
++            p.addCurve(to: pt(711.4, 454.1), controlPoint1: pt(664.4, 436.2), controlPoint2: pt(687.4, 441.2))
++            p.close()
++            p.fill()
++        }
++        do {
++            let p = UIBezierPath()
++            p.move(to: pt(459.2, 759.0))
++            p.addCurve(to: pt(251.7, 694.0), controlPoint1: pt(380.2, 811.0), controlPoint2: pt(291.8, 776.2))
++            p.addCurve(to: pt(342.3, 495.7), controlPoint1: pt(208.2, 602.7), controlPoint2: pt(256.1, 516.0))
++            p.addCurve(to: pt(496.9, 491.5), controlPoint1: pt(408.1, 481.7), controlPoint2: pt(458.6, 498.8))
++            p.addCurve(to: pt(539.1, 526.2), controlPoint1: pt(523.1, 485.6), controlPoint2: pt(546.4, 503.6))
++            p.addCurve(to: pt(474.4, 558.1), controlPoint1: pt(533.1, 544.5), controlPoint2: pt(502.9, 556.3))
++            p.addCurve(to: pt(393.1, 577.3), controlPoint1: pt(445.8, 559.8), controlPoint2: pt(419.4, 562.1))
++            p.addCurve(to: pt(371.3, 667.5), controlPoint1: pt(354.9, 597.5), controlPoint2: pt(350.1, 637.2))
++            p.addCurve(to: pt(459.1, 685.1), controlPoint1: pt(392.4, 697.7), controlPoint2: pt(427.2, 703.5))
++            p.addCurve(to: pt(498.5, 708.6), controlPoint1: pt(477.1, 674.7), controlPoint2: pt(498.6, 686.3))
++            p.addCurve(to: pt(459.2, 759.0), controlPoint1: pt(498.1, 727.2), controlPoint2: pt(482.3, 744.7))
++            p.close()
++            p.fill()
++        }
++    }
++}
++
++/// Монохромная иконка раздела, как в оболочке: белый символ без цветной подложки.
++func kasperSectionIcon(_ symbol: String, color: UIColor) -> UIImage? {
++    if symbol == "kasper.logo" {
++        return kasperLogoImage(size: 24.0, color: color)
++    }
++    let configuration = UIImage.SymbolConfiguration(pointSize: 19.0, weight: .medium)
++    guard let image = UIImage(systemName: symbol, withConfiguration: configuration) else {
++        return nil
++    }
++    // Все иконки в одну рамку 28×28, чтобы названия стояли ровной колонкой.
++    let box = CGSize(width: 28.0, height: 28.0)
++    let renderer = UIGraphicsImageRenderer(size: box)
++    return renderer.image { _ in
++        let tinted = image.withTintColor(color, renderingMode: .alwaysOriginal)
++        let fit = min(box.width / tinted.size.width, box.height / tinted.size.height, 1.0)
++        let drawSize = CGSize(width: tinted.size.width * fit, height: tinted.size.height * fit)
++        tinted.draw(in: CGRect(x: (box.width - drawSize.width) / 2.0, y: (box.height - drawSize.height) / 2.0, width: drawSize.width, height: drawSize.height))
++    }
++}
 diff --git a/submodules/SettingsUI/Sources/Kasper/KasperSettingsController.swift b/submodules/SettingsUI/Sources/Kasper/KasperSettingsController.swift
 new file mode 100644
-index 0000000..2217647
+index 0000000..71e6c37
 --- /dev/null
 +++ b/submodules/SettingsUI/Sources/Kasper/KasperSettingsController.swift
-@@ -0,0 +1,675 @@
+@@ -0,0 +1,691 @@
 +import Foundation
 +import UIKit
 +import Display
@@ -992,9 +1203,10 @@ index 0000000..2217647
 +    return text
 +}
 +
-+private func kasperSettingsEntries(state: KasperSettingsState) -> [KasperSettingsEntry] {
++private func kasperSettingsEntries(state: KasperSettingsState, voiceOnly: Bool) -> [KasperSettingsEntry] {
 +    var entries: [KasperSettingsEntry] = []
 +
++    if !voiceOnly {
 +    entries.append(.ghostSection(state))
 +    if state.isExpanded(.ghost) {
 +        entries.append(.ghostFooter)
@@ -1005,8 +1217,10 @@ index 0000000..2217647
 +        entries.append(.interfaceFooter)
 +    }
 +
++    }
++
 +    entries.append(.voiceSection(state))
-+    if state.isExpanded(.voice) {
++    if voiceOnly || state.isExpanded(.voice) {
 +        entries.append(.voiceRealistic(state.realisticVoice))
 +        if state.realisticVoice {
 +            entries.append(.voiceKey(state.elevenLabsApiKey))
@@ -1028,6 +1242,10 @@ index 0000000..2217647
 +        entries.append(.voiceFooter(kasperVoiceFooter(state: state)))
 +    }
 +
++    if voiceOnly {
++        return entries
++    }
++
 +    entries.append(.deletedSection(state))
 +    if state.isExpanded(.deleted) {
 +        entries.append(.deletedCount(state.deletedCaught))
@@ -1046,8 +1264,14 @@ index 0000000..2217647
 +
 +// MARK: - Контроллер
 +
-+public func kasperSettingsController(context: AccountContext) -> ViewController {
-+    let initialState = KasperSettingsState.current()
++/// Полный список настроек Kasper на одном экране («Все настройки»).
++/// С `voiceOnly` показывает только смену голоса — это экран раздела «Смена голоса».
++func kasperAllSettingsController(context: AccountContext, voiceOnly: Bool) -> ViewController {
++    var initialState = KasperSettingsState.current()
++    if voiceOnly {
++        // в отдельном разделе голос всегда раскрыт, это не меняет сохранённое состояние
++        initialState.expanded.insert(KasperSection.voice.rawValue)
++    }
 +    let statePromise = ValuePromise(initialState, ignoreRepeated: true)
 +    let stateValue = Atomic(value: initialState)
 +    let updateState: ((KasperSettingsState) -> KasperSettingsState) -> Void = { f in
@@ -1112,6 +1336,9 @@ index 0000000..2217647
 +
 +    let arguments = KasperSettingsControllerArguments(
 +        toggleSection: { section in
++            if voiceOnly && section == .voice {
++                return
++            }
 +            updateState { state in
 +                var state = state
 +                if state.expanded.contains(section.rawValue) {
@@ -1279,8 +1506,8 @@ index 0000000..2217647
 +
 +    let signal = combineLatest(queue: .mainQueue(), context.sharedContext.presentationData, statePromise.get())
 +    |> map { presentationData, state -> (ItemListControllerState, (ItemListNodeState, Any)) in
-+        let controllerState = ItemListControllerState(presentationData: ItemListPresentationData(presentationData), title: .text("Kasper"), leftNavigationButton: nil, rightNavigationButton: nil, backNavigationButton: ItemListBackButton(title: presentationData.strings.Common_Back))
-+        let listState = ItemListNodeState(presentationData: ItemListPresentationData(presentationData), entries: kasperSettingsEntries(state: state), style: .blocks, animateChanges: true)
++        let controllerState = ItemListControllerState(presentationData: ItemListPresentationData(presentationData), title: .text(voiceOnly ? "Смена голоса" : "Все настройки"), leftNavigationButton: nil, rightNavigationButton: nil, backNavigationButton: ItemListBackButton(title: presentationData.strings.Common_Back))
++        let listState = ItemListNodeState(presentationData: ItemListPresentationData(presentationData), entries: kasperSettingsEntries(state: state, voiceOnly: voiceOnly), style: .blocks, animateChanges: true)
 +        return (controllerState, (listState, arguments))
 +    }
 +
@@ -1289,6 +1516,801 @@ index 0000000..2217647
 +        matchElevenLabsVoices()
 +    }
 +    return controller
++}
+diff --git a/submodules/SettingsUI/Sources/Kasper/KasperShell.swift b/submodules/SettingsUI/Sources/Kasper/KasperShell.swift
+new file mode 100644
+index 0000000..f1c23f7
+--- /dev/null
++++ b/submodules/SettingsUI/Sources/Kasper/KasperShell.swift
+@@ -0,0 +1,789 @@
++import Foundation
++import UIKit
++import Display
++import SwiftSignalKit
++import TelegramCore
++import TelegramPresentationData
++import ItemListUI
++import PresentationDataUtils
++import AccountContext
++import StorageUsageScreen
++
++// MARK: - Разделы
++
++/// Разделы оболочки Kasper в том порядке, в каком они стоят на главном экране.
++enum KasperPage: String, CaseIterable {
++    case search
++    case appearance
++    case notifications
++    case glass
++    case messages
++    case camera
++    case ghost
++    case privacy
++    case info
++    case extra
++    case menu
++    case tabs
++    case stars
++    case fonts
++    case translate
++    case traffic
++    case virustotal
++    case voice
++    case player
++    case radio
++    case features
++    case icons
++    case plugins
++    case sessions
++    case all
++
++    var title: String {
++        switch self {
++        case .search: return "Поиск настроек"
++        case .appearance: return "Внешний вид"
++        case .notifications: return "Уведомления"
++        case .glass: return "Liquid Glass"
++        case .messages: return "Сообщения"
++        case .camera: return "Камера"
++        case .ghost: return "Режим призрака"
++        case .privacy: return "Конфиденциальность"
++        case .info: return "Информация"
++        case .extra: return "Дополнительно"
++        case .menu: return "Разделы меню"
++        case .tabs: return "Вкладки"
++        case .stars: return "Локальные звёзды"
++        case .fonts: return "Шрифты"
++        case .translate: return "Перевод"
++        case .traffic: return "Улучшенный трафик"
++        case .virustotal: return "VirusTotal"
++        case .voice: return "Смена голоса"
++        case .player: return "Плеер"
++        case .radio: return "Радио"
++        case .features: return "Функции Kasper"
++        case .icons: return "Иконки"
++        case .plugins: return "Плагины"
++        case .sessions: return "Сессии"
++        case .all: return "Все настройки"
++        }
++    }
++
++    var subtitle: String {
++        switch self {
++        case .search: return "Найти опцию Kasper"
++        case .appearance: return "Аватарки, пузыри сообщений, эффекты"
++        case .notifications: return "Локальные уведомления"
++        case .glass: return "Стеклянные панели и размытие"
++        case .messages: return "Удалённые, изменённые, кэш"
++        case .camera: return "Зум, HD-отправка, кружки"
++        case .ghost: return "Скрыть онлайн, прочтение и набор"
++        case .privacy: return "Защита контента и звонков"
++        case .info: return "ID, дата-центр, дата создания"
++        case .extra: return "Вибрация, реакции, ускорение"
++        case .menu: return "Что показывать в меню Telegram"
++        case .tabs: return "Нижняя панель и её вкладки"
++        case .stars: return "Свой баланс звёзд на экране"
++        case .fonts: return "Свой шрифт для всего приложения"
++        case .translate: return "Перевод входящих и исходящих"
++        case .traffic: return "Прокси, соединение и диагностика"
++        case .virustotal: return "Проверка ссылок и файлов"
++        case .voice: return "Изменение своего голоса в записях"
++        case .player: return "Скорость, кроссфейд, эквалайзер"
++        case .radio: return "Сейчас никто не слушает"
++        case .features: return "Стена, спецэффекты, значок в профиле"
++        case .icons: return "Наборы иконок, замена значков интерфейса"
++        case .plugins: return "JS-плагины расширяют функциональность Kasper без пересборки. Плагины выполняются в изолированной среде JavaScriptCore."
++        case .sessions: return "Устройства, где открыт ваш аккаунт"
++        case .all: return "Полный список настроек"
++        }
++    }
++
++    /// SF Symbol для иконки слева.
++    var symbol: String {
++        switch self {
++        case .search: return "magnifyingglass"
++        case .appearance: return "paintbrush.pointed.fill"
++        case .notifications: return "bell.fill"
++        case .glass: return "drop.fill"
++        case .messages: return "bubble.left.fill"
++        case .camera: return "camera.fill"
++        case .ghost: return "eye.slash.fill"
++        case .privacy: return "lock.fill"
++        case .info: return "info.circle.fill"
++        case .extra: return "slider.horizontal.3"
++        case .menu: return "eye.trianglebadge.exclamationmark.fill"
++        case .tabs: return "square.grid.3x1.below.line.grid.1x2"
++        case .stars: return "star.fill"
++        case .fonts: return "textformat"
++        case .translate: return "globe"
++        case .traffic: return "network.badge.shield.half.filled"
++        case .virustotal: return "checkmark.shield.fill"
++        case .voice: return "waveform.badge.mic"
++        case .player: return "music.note"
++        case .radio: return "dot.radiowaves.left.and.right"
++        case .features: return "kasper.logo"
++        case .icons: return "square.grid.2x2.fill"
++        case .plugins: return "puzzlepiece.extension.fill"
++        case .sessions: return "clock.fill"
++        case .all: return "list.bullet"
++        }
++    }
++
++    /// Раздел уже работает. Остальные видны с пометкой «скоро» и не открывают пустой экран.
++    var isReady: Bool {
++        switch self {
++        case .camera, .extra, .menu, .stars, .fonts, .virustotal, .player, .radio, .icons, .plugins:
++            return false
++        default:
++            return true
++        }
++    }
++}
++
++// MARK: - Строки экранов
++
++/// Одна строка на экране Kasper. Экраны собираются из этих строк, поэтому все
++/// разделы выглядят одинаково, а поиск знает, где какая настройка лежит.
++enum KasperRow {
++    case header(title: String, version: String)
++    case sectionTitle(id: String, text: String)
++    case link(id: String, title: String, subtitle: String?, symbol: String?, badge: String?, action: () -> Void)
++    case toggle(id: String, title: String, value: Bool, enabled: Bool, set: (Bool) -> Void)
++    case info(id: String, title: String, value: String, copy: String?)
++    case input(id: String, title: String, placeholder: String, value: String, set: (String) -> Void)
++    case text(id: String, text: String)
++
++    var id: String {
++        switch self {
++        case .header:
++            return "header"
++        case let .sectionTitle(id, _), let .link(id, _, _, _, _, _), let .toggle(id, _, _, _, _), let .info(id, _, _, _), let .input(id, _, _, _, _), let .text(id, _):
++            return id
++        }
++    }
++
++    /// Всё, что видно на экране: по нему список понимает, изменилась ли строка.
++    var signature: String {
++        switch self {
++        case let .header(title, version):
++            return "h|\(title)|\(version)"
++        case let .sectionTitle(_, text):
++            return "s|\(text)"
++        case let .link(_, title, subtitle, symbol, badge, _):
++            return "l|\(title)|\(subtitle ?? "")|\(symbol ?? "")|\(badge ?? "")"
++        case let .toggle(_, title, value, enabled, _):
++            return "t|\(title)|\(value)|\(enabled)"
++        case let .info(_, title, value, copy):
++            return "i|\(title)|\(value)|\(copy != nil)"
++        case let .input(_, title, placeholder, value, _):
++            return "n|\(title)|\(placeholder)|\(value)"
++        case let .text(_, text):
++            return "x|\(text)"
++        }
++    }
++}
++
++typealias KasperGroup = [KasperRow]
++
++private struct KasperEntry: ItemListNodeEntry {
++    let order: Int32
++    let section: ItemListSectionId
++    let row: KasperRow
++
++    var stableId: String {
++        return self.row.id
++    }
++
++    static func ==(lhs: KasperEntry, rhs: KasperEntry) -> Bool {
++        return lhs.order == rhs.order && lhs.section == rhs.section && lhs.row.signature == rhs.row.signature
++    }
++
++    static func <(lhs: KasperEntry, rhs: KasperEntry) -> Bool {
++        return lhs.order < rhs.order
++    }
++
++    func item(presentationData: ItemListPresentationData, arguments: Any) -> ListViewItem {
++        let iconColor = presentationData.theme.list.itemPrimaryTextColor
++        switch self.row {
++        case let .header(title, version):
++            return KasperHeaderItem(presentationData: presentationData, title: title, version: version, sectionId: self.section)
++        case let .sectionTitle(_, text):
++            return ItemListSectionHeaderItem(presentationData: presentationData, text: text, sectionId: self.section)
++        case let .link(_, title, subtitle, symbol, badge, action):
++            let icon = symbol.flatMap { KasperIconCache.icon($0, color: iconColor) }
++            return ItemListDisclosureItem(presentationData: presentationData, systemStyle: .glass, icon: icon, title: title, titleBadge: badge, label: subtitle ?? "", labelStyle: subtitle == nil ? .text : .multilineDetailText, sectionId: self.section, style: .blocks, disclosureStyle: .arrow, action: {
++                action()
++            })
++        case let .toggle(_, title, value, enabled, set):
++            return ItemListSwitchItem(presentationData: presentationData, systemStyle: .glass, title: title, value: value, enabled: enabled, maximumNumberOfLines: 2, sectionId: self.section, style: .blocks, updated: { value in
++                set(value)
++            })
++        case let .info(_, title, value, copy):
++            var action: (() -> Void)?
++            if let copy = copy {
++                action = {
++                    UIPasteboard.general.string = copy
++                }
++            }
++            return ItemListDisclosureItem(presentationData: presentationData, systemStyle: .glass, title: title, label: value, sectionId: self.section, style: .blocks, disclosureStyle: .none, action: action)
++        case let .input(_, title, placeholder, value, set):
++            return ItemListSingleLineInputItem(presentationData: presentationData, systemStyle: .glass, title: NSAttributedString(string: title, textColor: presentationData.theme.list.itemPrimaryTextColor), text: value, placeholder: placeholder, type: .regular(capitalization: false, autocorrection: false), spacing: 12.0, clearType: .always, sectionId: self.section, textUpdated: { value in
++                set(value)
++            }, action: {
++            })
++        case let .text(_, text):
++            return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section)
++        }
++    }
++}
++
++/// Иконки рисуются один раз на цвет темы, а не при каждом обновлении списка.
++private enum KasperIconCache {
++    // Строки списка собираются не только на главном потоке, поэтому кэш под замком.
++    private static let lock = NSLock()
++    private static var cache: [String: UIImage] = [:]
++
++    static func icon(_ symbol: String, color: UIColor) -> UIImage? {
++        let key = "\(symbol)|\(color.hashValue)"
++        lock.lock()
++        let cached = cache[key]
++        lock.unlock()
++        if let cached = cached {
++            return cached
++        }
++        let image = kasperSectionIcon(symbol, color: color)
++        if let image = image {
++            lock.lock()
++            cache[key] = image
++            lock.unlock()
++        }
++        return image
++    }
++}
++
++/// Держит слабую ссылку на экран, чтобы строки могли открывать другие экраны.
++final class KasperNavigation {
++    weak var controller: ViewController?
++
++    func push(_ controller: ViewController) {
++        (self.controller?.navigationController as? NavigationController)?.pushViewController(controller)
++    }
++
++    func present(_ controller: ViewController) {
++        self.controller?.present(controller, in: .window(.root))
++    }
++}
++
++/// Экран Kasper из групп строк. Каждая группа — отдельная скруглённая карточка.
++func kasperListController(context: AccountContext, title: String, navigation: KasperNavigation, groups: Signal<[KasperGroup], NoError>) -> ViewController {
++    let signal = combineLatest(queue: .mainQueue(), context.sharedContext.presentationData, groups)
++    |> map { presentationData, groups -> (ItemListControllerState, (ItemListNodeState, Any)) in
++        let listPresentationData = ItemListPresentationData(presentationData)
++        let controllerState = ItemListControllerState(presentationData: listPresentationData, title: .text(title), leftNavigationButton: nil, rightNavigationButton: nil, backNavigationButton: ItemListBackButton(title: presentationData.strings.Common_Back))
++        var entries: [KasperEntry] = []
++        var order: Int32 = 0
++        for (index, group) in groups.enumerated() {
++            for row in group {
++                entries.append(KasperEntry(order: order, section: Int32(index), row: row))
++                order += 1
++            }
++        }
++        let listState = ItemListNodeState(presentationData: listPresentationData, entries: entries, style: .blocks, animateChanges: false)
++        return (controllerState, (listState, KasperNoArguments()))
++    }
++    let controller = ItemListController(context: context, state: signal)
++    navigation.controller = controller
++    return controller
++}
++
++private final class KasperNoArguments {
++}
++
++// MARK: - Главный экран
++
++/// Раздел Kasper в настройках Telegram.
++public func kasperSettingsController(context: AccountContext) -> ViewController {
++    let navigation = KasperNavigation()
++
++    var sections: KasperGroup = []
++    for page in KasperPage.allCases {
++        sections.append(.link(id: "page-\(page.rawValue)", title: page.title, subtitle: page.subtitle, symbol: page.symbol, badge: page.isReady ? nil : "скоро", action: {
++            kasperOpen(page, context: context, navigation: navigation)
++        }))
++    }
++    let groups: [KasperGroup] = [
++        [.header(title: "Kasper", version: KasperAbout.versionString)],
++        [.link(id: "about", title: "О Kasper", subtitle: "Версия, исходный код, разработчик", symbol: "person.fill", badge: nil, action: {
++            navigation.push(kasperAboutController(context: context))
++        })],
++        sections
++    ]
++    return kasperListController(context: context, title: "", navigation: navigation, groups: .single(groups))
++}
++
++/// Открывает раздел: свой экран Kasper или готовый экран Telegram, где функция уже есть.
++func kasperOpen(_ page: KasperPage, context: AccountContext, navigation: KasperNavigation) {
++    guard page.isReady else {
++        let presentationData = context.sharedContext.currentPresentationData.with { $0 }
++        navigation.present(textAlertController(context: context, title: page.title, text: "Раздел в разработке и появится в одном из следующих обновлений Kasper.", actions: [TextAlertAction(type: .defaultAction, title: presentationData.strings.Common_OK, action: {})]))
++        return
++    }
++    switch page {
++    case .search:
++        navigation.push(kasperSearchController(context: context))
++    case .notifications:
++        navigation.push(notificationsAndSoundsController(context: context, exceptionsList: nil))
++    case .translate:
++        navigation.push(translationSettingsController(context: context))
++    case .sessions:
++        navigation.push(recentSessionsController(context: context, activeSessionsContext: context.engine.privacy.activeSessions(), webSessionsContext: context.engine.privacy.webSessions(), websitesOnly: false))
++    case .voice:
++        navigation.push(kasperAllSettingsController(context: context, voiceOnly: true))
++    case .all:
++        navigation.push(kasperAllSettingsController(context: context, voiceOnly: false))
++    case .info:
++        navigation.push(kasperInfoController(context: context))
++    default:
++        navigation.push(kasperPageController(context: context, page: page))
++    }
++}
++
++// MARK: - Разделы с настройками
++
++/// Обычные разделы: строки берутся из `kasperPageRows`, переключатели сразу сохраняются.
++func kasperPageController(context: AccountContext, page: KasperPage) -> ViewController {
++    let navigation = KasperNavigation()
++    let refresh = ValuePromise<Int>(0, ignoreRepeated: false)
++    var tick = 0
++    let reload: () -> Void = {
++        tick += 1
++        refresh.set(tick)
++    }
++    let groups = refresh.get()
++    |> map { _ -> [KasperGroup] in
++        return kasperPageRows(page, context: context, navigation: navigation, reload: reload)
++    }
++    return kasperListController(context: context, title: page.title, navigation: navigation, groups: groups)
++}
++
++private func kasperSoon(_ id: String, _ text: String) -> KasperRow {
++    return .text(id: id, text: "Скоро: \(text)")
++}
++
++func kasperPageRows(_ page: KasperPage, context: AccountContext, navigation: KasperNavigation, reload: @escaping () -> Void) -> [KasperGroup] {
++    switch page {
++    case .appearance:
++        return [
++            [
++                .link(id: "themes", title: "Темы и цвета", subtitle: "Тёмная и светлая тема, ночной режим, цвет акцента, обои, скругление сообщений, размер текста, анимации", symbol: "paintpalette.fill", badge: nil, action: {
++                    navigation.push(themeSettingsController(context: context))
++                })
++            ],
++            [
++                kasperSoon("appearance-soon", "размер и скругление аватарок, стили пузырей, отступы сообщений, прозрачность элементов.")
++            ]
++        ]
++    case .glass:
++        return [
++            [
++                .toggle(id: "legacyGlass", title: "Стекло как на старых iOS", value: KasperSettings.legacyGlass, enabled: true, set: { value in
++                    KasperSettings.legacyGlass = value
++                    reload()
++                }),
++                .text(id: "glass-footer", text: "Заменяет Liquid Glass на стекло Telegram для iOS 18 и ниже. Работает на iOS 26 и новее, применяется после перезапуска Kasper.")
++            ],
++            [
++                kasperSoon("glass-soon", "сила размытия, прозрачность и отдельные настройки для меню, чатов и нижней панели.")
++            ]
++        ]
++    case .messages:
++        return [
++            [
++                .toggle(id: "keepDeleted", title: "Сохранять удалённые", value: KasperSettings.keepDeletedMessages, enabled: true, set: { value in
++                    KasperSettings.keepDeletedMessages = value
++                    reload()
++                }),
++                .toggle(id: "keepDeletedInGroups", title: "И в группах", value: KasperSettings.keepDeletedInGroups, enabled: KasperSettings.keepDeletedMessages, set: { value in
++                    KasperSettings.keepDeletedInGroups = value
++                    reload()
++                }),
++                .info(id: "deletedCaught", title: "Поймано удалённых", value: "\(KasperSettings.deletedCaught)", copy: nil),
++                .text(id: "deleted-footer", text: "Удалённое собеседником остаётся в чате с пометкой «🗑 Удалено» вместе с текстом и уже загруженными файлами. То, что удаляете вы, исчезает как обычно.")
++            ],
++            [
++                .link(id: "cache", title: "Кэш и память", subtitle: "Сколько места занимают чаты и медиа, очистка кэша", symbol: "internaldrive.fill", badge: nil, action: {
++                    navigation.push(StorageUsageScreen(context: context, makeStorageUsageExceptionsScreen: { category in
++                        return storageUsageExceptionsScreen(context: context, category: category)
++                    }))
++                }),
++                .text(id: "edited-footer", text: "Пометку «изменено» Telegram показывает сам.")
++            ],
++            [
++                kasperSoon("messages-soon", "история изменений сообщений и подробная информация о сообщении.")
++            ]
++        ]
++    case .ghost:
++        return [
++            [
++                .toggle(id: "ghostOnline", title: "Скрывать «в сети»", value: KasperSettings.ghostHideOnline, enabled: true, set: { value in
++                    KasperSettings.ghostHideOnline = value
++                    reload()
++                }),
++                .toggle(id: "ghostRead", title: "Не отправлять прочтение", value: KasperSettings.ghostHideReadReceipts, enabled: true, set: { value in
++                    KasperSettings.ghostHideReadReceipts = value
++                    reload()
++                }),
++                .toggle(id: "ghostTyping", title: "Скрывать «печатает…» и «записывает голосовое…»", value: KasperSettings.ghostHideTyping, enabled: true, set: { value in
++                    KasperSettings.ghostHideTyping = value
++                    reload()
++                }),
++                .toggle(id: "ghostListened", title: "Скрывать «прослушано» и просмотр медиа «один раз»", value: KasperSettings.ghostHideListened, enabled: true, set: { value in
++                    KasperSettings.ghostHideListened = value
++                    reload()
++                }),
++                .text(id: "ghost-footer", text: "Kasper не отправляет эти сигналы Telegram. Пользуйтесь на свой риск: за нестандартное поведение клиента аккаунт могут ограничить. Официальный способ скрыть время захода — Настройки → Конфиденциальность → Время захода.")
++            ],
++            [
++                kasperSoon("ghost-soon", "скрытие просмотра историй и отдельные настройки для личных чатов и групп.")
++            ]
++        ]
++    case .privacy:
++        return [
++            [
++                .link(id: "privacy-telegram", title: "Конфиденциальность Telegram", subtitle: "Кто видит номер, время захода и фото, звонки, пересылка, блокировки", symbol: "hand.raised.fill", badge: nil, action: {
++                    navigation.push(makePrivacyAndSecurityController(context: context))
++                }),
++                .link(id: "passcode", title: "Код-пароль и Face ID", subtitle: "Защита приложения при открытии и скрытие содержимого в переключателе приложений", symbol: "faceid", badge: nil, action: {
++                    let _ = (passcodeOptionsAccessController(context: context, pushController: { controller in
++                        navigation.push(controller)
++                    }, completion: { _ in
++                        navigation.push(passcodeOptionsController(context: context))
++                    })
++                    |> deliverOnMainQueue).start(next: { controller in
++                        if let controller = controller {
++                            navigation.push(controller)
++                        }
++                    })
++                }),
++                .link(id: "privacy-notifications", title: "Скрыть текст в уведомлениях", subtitle: "Показ текста сообщений в уведомлениях настраивается в разделе «Уведомления»", symbol: "bell.slash.fill", badge: nil, action: {
++                    navigation.push(notificationsAndSoundsController(context: context, exceptionsList: nil))
++                })
++            ],
++            [
++                kasperSoon("privacy-soon", "отдельная защита для выбранных чатов.")
++            ]
++        ]
++    case .tabs:
++        return [
++            [
++                .toggle(id: "profileTab", title: "Вкладка «Профиль»", value: KasperSettings.profileTab, enabled: true, set: { value in
++                    KasperSettings.profileTab = value
++                    reload()
++                }),
++                .text(id: "tabs-footer", text: "Отдельная вкладка с вашим профилем в нижней панели.")
++            ],
++            [
++                kasperSoon("tabs-soon", "порядок вкладок, их количество, иконки и свои названия.")
++            ]
++        ]
++    case .traffic:
++        return [
++            [
++                .link(id: "proxy", title: "Прокси", subtitle: "Свой прокси-сервер SOCKS5 или MTProto", symbol: "server.rack", badge: nil, action: {
++                    navigation.push(proxySettingsController(context: context))
++                }),
++                .link(id: "dataStorage", title: "Данные и память", subtitle: "Автозагрузка медиа, экономия трафика, статистика использования сети", symbol: "arrow.up.arrow.down", badge: nil, action: {
++                    navigation.push(dataAndStorageController(context: context))
++                }),
++                .link(id: "connection", title: "Соединение", subtitle: "Текущее состояние, дата-центр и прокси", symbol: "antenna.radiowaves.left.and.right", badge: nil, action: {
++                    navigation.push(kasperInfoController(context: context))
++                })
++            ],
++            [
++                .text(id: "traffic-footer", text: "Kasper использует только штатные сетевые механизмы Telegram: прокси и настройки соединения. Скрытых способов обхода ограничений здесь нет.")
++            ]
++        ]
++    case .features:
++        return [
++            [
++                .toggle(id: "screenshotBadge", title: "Надпись Kasper на скриншотах", value: KasperSettings.screenshotBadge, enabled: true, set: { value in
++                    KasperSettings.screenshotBadge = value
++                    reload()
++                }),
++                .toggle(id: "watermarkVideoNotes", title: "Надпись Kasper на кружках", value: KasperSettings.watermarkVideoNotes, enabled: true, set: { value in
++                    KasperSettings.watermarkVideoNotes = value
++                    reload()
++                }),
++                .text(id: "features-footer", text: "При скриншоте Kasper сохраняет в галерею свою копию с фиолетовой надписью: изменить системный снимок iOS не позволяет. Кружок получает надпись, когда вы сохраняете его в галерею.")
++            ],
++            [
++                .input(id: "nickname", title: "@", placeholder: "kasper_boss", value: KasperSettings.localNickname, set: { value in
++                    KasperSettings.localNickname = value.trimmingCharacters(in: .whitespacesAndNewlines)
++                }),
++                .text(id: "nickname-footer", text: "Локальный ник виден только в Kasper. Настоящий username не меняется.")
++            ],
++            [
++                kasperSoon("features-soon", "стена профиля, спецэффекты и значок Kasper в профиле.")
++            ]
++        ]
++    default:
++        return [[kasperSoon("soon", "этот раздел в разработке.")]]
++    }
++}
++
++// MARK: - О Kasper
++
++enum KasperAbout {
++    static let repository = "https://github.com/rachimanna/kasper-ios"
++
++    static var shortVersion: String {
++        return (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "—"
++    }
++
++    static var buildNumber: String {
++        return (Bundle.main.infoDictionary?["CFBundleVersion"] as? String) ?? "—"
++    }
++
++    static var versionString: String {
++        return "\(shortVersion) (\(buildNumber))"
++    }
++
++    enum UpdateCheck {
++        case upToDate
++        case available(build: Int, url: String)
++        case failed(String)
++    }
++
++    /// Последний релиз из GitHub. Сборки публикуются с тегом kasper-<номер сборки>.
++    static func checkForUpdate() -> Signal<UpdateCheck, NoError> {
++        return Signal { subscriber in
++            guard let url = URL(string: "https://api.github.com/repos/rachimanna/kasper-ios/releases/latest") else {
++                subscriber.putNext(.failed("неверный адрес"))
++                subscriber.putCompletion()
++                return EmptyDisposable
++            }
++            var request = URLRequest(url: url, timeoutInterval: 15.0)
++            request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
++            let task = URLSession.shared.dataTask(with: request, completionHandler: { data, _, error in
++                if let error = error {
++                    if (error as NSError).code != NSURLErrorCancelled {
++                        subscriber.putNext(.failed(error.localizedDescription))
++                        subscriber.putCompletion()
++                    }
++                    return
++                }
++                guard let data = data, let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any], let tag = json["tag_name"] as? String else {
++                    subscriber.putNext(.failed("GitHub не вернул информацию о релизе"))
++                    subscriber.putCompletion()
++                    return
++                }
++                let latest = Int(tag.components(separatedBy: "-").last ?? "") ?? 0
++                let current = Int(buildNumber) ?? 0
++                let page = (json["html_url"] as? String) ?? (repository + "/releases/latest")
++                if latest > current {
++                    subscriber.putNext(.available(build: latest, url: page))
++                } else {
++                    subscriber.putNext(.upToDate)
++                }
++                subscriber.putCompletion()
++            })
++            task.resume()
++            return ActionDisposable {
++                task.cancel()
++            }
++        }
++    }
++}
++
++func kasperAboutController(context: AccountContext) -> ViewController {
++    let navigation = KasperNavigation()
++    let checkDisposable = MetaDisposable()
++    let checking = ValuePromise<Bool>(false, ignoreRepeated: true)
++
++    let openUrl: (String) -> Void = { url in
++        context.sharedContext.applicationBindings.openUrl(url)
++    }
++    let checkUpdates: () -> Void = {
++        checking.set(true)
++        checkDisposable.set((KasperAbout.checkForUpdate()
++        |> deliverOnMainQueue).start(next: { result in
++            checking.set(false)
++            let presentationData = context.sharedContext.currentPresentationData.with { $0 }
++            let ok = TextAlertAction(type: .defaultAction, title: presentationData.strings.Common_OK, action: {})
++            switch result {
++            case .upToDate:
++                navigation.present(textAlertController(context: context, title: "Обновлений нет", text: "У вас последняя сборка Kasper: \(KasperAbout.versionString).", actions: [ok]))
++            case let .available(build, url):
++                navigation.present(textAlertController(context: context, title: "Есть новая сборка", text: "Доступна сборка \(build), у вас \(KasperAbout.buildNumber). Скачайте Kasper.ipa и установите поверх — настройки сохранятся.", actions: [
++                    TextAlertAction(type: .genericAction, title: presentationData.strings.Common_Cancel, action: {}),
++                    TextAlertAction(type: .defaultAction, title: "Открыть", action: {
++                        openUrl(url)
++                    })
++                ]))
++            case let .failed(reason):
++                navigation.present(textAlertController(context: context, title: "Не удалось проверить", text: reason, actions: [ok]))
++            }
++        }))
++    }
++
++    let groups = checking.get()
++    |> map { isChecking -> [KasperGroup] in
++        return [
++            [.header(title: "Kasper", version: KasperAbout.versionString)],
++            [
++                .info(id: "version", title: "Версия", value: KasperAbout.shortVersion, copy: KasperAbout.versionString),
++                .info(id: "build", title: "Сборка", value: KasperAbout.buildNumber, copy: KasperAbout.buildNumber),
++                .info(id: "base", title: "Основа", value: "Telegram-iOS \(KasperAbout.shortVersion)", copy: nil),
++                .link(id: "update", title: isChecking ? "Проверяю…" : "Проверить обновления", subtitle: "Сравнить с последней сборкой на GitHub", symbol: "arrow.triangle.2.circlepath", badge: nil, action: {
++                    if !isChecking {
++                        checkUpdates()
++                    }
++                })
++            ],
++            [
++                .link(id: "source", title: "Исходный код", subtitle: "github.com/rachimanna/kasper-ios", symbol: "chevron.left.forwardslash.chevron.right", badge: nil, action: {
++                    openUrl(KasperAbout.repository)
++                }),
++                .link(id: "releases", title: "Все сборки", subtitle: "Скачать Kasper.ipa", symbol: "shippingbox.fill", badge: nil, action: {
++                    openUrl(KasperAbout.repository + "/releases")
++                }),
++                .link(id: "license", title: "Лицензия", subtitle: "GPL v2 — как у Telegram-iOS, на котором основан Kasper", symbol: "doc.text.fill", badge: nil, action: {
++                    openUrl("https://github.com/TelegramMessenger/Telegram-iOS/blob/master/LICENSE")
++                })
++            ],
++            [
++                .info(id: "developer", title: "Разработчик", value: "rachimanna", copy: nil),
++                .text(id: "about-footer", text: "Kasper — неофициальный клиент на открытом коде Telegram, для личного использования. Работает через официальный API Telegram и не связан с Telegram FZ-LLC. Настройки Kasper хранятся только на этом устройстве.")
++            ]
++        ]
++    }
++    return kasperListController(context: context, title: "О Kasper", navigation: navigation, groups: groups)
++}
++
++// MARK: - Информация
++
++private func kasperConnectionText(_ status: ConnectionStatus) -> String {
++    switch status {
++    case .waitingForNetwork:
++        return "Ждёт сеть"
++    case let .connecting(proxy, issues):
++        if let proxy = proxy {
++            return issues ? "Подключение через прокси \(proxy) — есть проблемы" : "Подключение через прокси \(proxy)"
++        }
++        return "Подключение…"
++    case let .updating(proxy):
++        return proxy.map { "Обновление через прокси \($0)" } ?? "Обновление…"
++    case let .online(proxy):
++        return proxy.map { "В сети через прокси \($0)" } ?? "В сети напрямую"
++    }
++}
++
++func kasperInfoController(context: AccountContext) -> ViewController {
++    let navigation = KasperNavigation()
++    let userId = context.account.peerId.id._internalGetInt64Value()
++    let datacenter = context.account.network.datacenterId
++
++    let groups = context.account.network.connectionStatus
++    |> map { status -> [KasperGroup] in
++        return [
++            [
++                .info(id: "userId", title: "Ваш ID", value: "\(userId)", copy: "\(userId)"),
++                .info(id: "created", title: "Аккаунт создан", value: KasperAccountAge.describe(userId: userId) ?? "нет данных", copy: nil),
++                .info(id: "dc", title: "Дата-центр", value: "DC\(datacenter)", copy: nil),
++                .text(id: "info-footer", text: "Нажмите на ID, чтобы скопировать. Дата создания — оценка по номеру ID: Telegram не отдаёт дату регистрации. ID чатов, каналов и ботов показываются на их страницах профиля.")
++            ],
++            [
++                .sectionTitle(id: "connection-title", text: "СОЕДИНЕНИЕ"),
++                .info(id: "connection", title: "Состояние", value: kasperConnectionText(status), copy: nil),
++                .info(id: "client", title: "Версия клиента", value: KasperAbout.versionString, copy: KasperAbout.versionString)
++            ]
++        ]
++    }
++    return kasperListController(context: context, title: "Информация", navigation: navigation, groups: groups)
++}
++
++// MARK: - Поиск
++
++/// Всё, что можно найти поиском: разделы и конкретные настройки внутри них.
++private struct KasperSearchTarget {
++    let title: String
++    let page: KasperPage
++    let keywords: String
++}
++
++private let kasperSearchTargets: [KasperSearchTarget] = {
++    var result: [KasperSearchTarget] = KasperPage.allCases.filter({ $0 != .search }).map { page in
++        return KasperSearchTarget(title: page.title, page: page, keywords: page.subtitle)
++    }
++    let settings: [(String, KasperPage, String)] = [
++        ("Скрывать «в сети»", .ghost, "онлайн призрак статус время захода"),
++        ("Не отправлять прочтение", .ghost, "прочитано галочки призрак"),
++        ("Скрывать «печатает…»", .ghost, "набор текста записывает голосовое призрак"),
++        ("Скрывать «прослушано»", .ghost, "голосовые кружки один раз просмотр призрак"),
++        ("Сохранять удалённые сообщения", .messages, "удалено удалённые антиудаление"),
++        ("Удалённые в группах", .messages, "удалено группы"),
++        ("Кэш и память", .messages, "очистка кэша хранилище место"),
++        ("Стекло как на старых iOS", .glass, "liquid glass стекло размытие ios 26"),
++        ("Темы и цвета", .appearance, "тема ночной режим тёмная светлая обои скругление сообщений размер текста анимации"),
++        ("Вкладка «Профиль»", .tabs, "нижняя панель вкладки профиль"),
++        ("Надпись Kasper на скриншотах", .features, "скриншот водяной знак"),
++        ("Надпись Kasper на кружках", .features, "кружок видеосообщение водяной знак"),
++        ("Локальный ник", .features, "username юзернейм ник"),
++        ("Голоса и эффекты", .voice, "голос женский мужской детский робот монстр старик эхо пиксель"),
++        ("Реалистичные голоса ElevenLabs", .voice, "elevenlabs реалистичный голос ключ"),
++        ("Голос в звонках", .voice, "звонок смена голоса"),
++        ("Код-пароль и Face ID", .privacy, "пароль face id блокировка защита"),
++        ("Конфиденциальность Telegram", .privacy, "приватность номер время захода блокировки"),
++        ("Прокси", .traffic, "proxy socks5 mtproto сеть"),
++        ("Данные и память", .traffic, "автозагрузка трафик экономия"),
++        ("Ваш ID", .info, "айди id номер аккаунта"),
++        ("Дата-центр", .info, "dc сервер соединение"),
++        ("Дата создания аккаунта", .info, "регистрация возраст аккаунта"),
++        ("Проверить обновления", .all, "обновление версия сборка ipa")
++    ]
++    for (title, page, keywords) in settings {
++        result.append(KasperSearchTarget(title: title, page: page, keywords: keywords))
++    }
++    return result
++}()
++
++func kasperSearchController(context: AccountContext) -> ViewController {
++    let navigation = KasperNavigation()
++    let query = ValuePromise<String>("", ignoreRepeated: true)
++
++    let groups = query.get()
++    |> map { text -> [KasperGroup] in
++        var groups: [KasperGroup] = [[
++            .input(id: "query", title: "🔍", placeholder: "Что найти?", value: text, set: { value in
++                query.set(value)
++            })
++        ]]
++        let needle = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
++        guard !needle.isEmpty else {
++            groups.append([.text(id: "hint", text: "Например: призрак, удалённые, голос, прокси, ID.")])
++            return groups
++        }
++        let found = kasperSearchTargets.filter { target in
++            return target.title.lowercased().contains(needle) || target.keywords.lowercased().contains(needle) || target.page.title.lowercased().contains(needle)
++        }
++        if found.isEmpty {
++            groups.append([.text(id: "nothing", text: "Ничего не найдено.")])
++        } else {
++            var rows: KasperGroup = []
++            for (index, target) in found.prefix(30).enumerated() {
++                let path = target.page.isReady ? target.page.title : "\(target.page.title) · скоро"
++                rows.append(.link(id: "result-\(index)-\(target.title)", title: target.title, subtitle: path, symbol: target.page.symbol, badge: nil, action: {
++                    if target.title == "Проверить обновления" {
++                        navigation.push(kasperAboutController(context: context))
++                    } else {
++                        kasperOpen(target.page, context: context, navigation: navigation)
++                    }
++                }))
++            }
++            groups.append(rows)
++        }
++        return groups
++    }
++    return kasperListController(context: context, title: "Поиск настроек", navigation: navigation, groups: groups)
 +}
 diff --git a/submodules/TelegramCore/Sources/Kasper/KasperAccountAge.swift b/submodules/TelegramCore/Sources/Kasper/KasperAccountAge.swift
 new file mode 100644
