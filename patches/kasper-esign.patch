@@ -1,0 +1,52 @@
+diff --git a/submodules/TelegramUI/Sources/AppDelegate.swift b/submodules/TelegramUI/Sources/AppDelegate.swift
+index b1ea96b..13b0ba6 100644
+--- a/submodules/TelegramUI/Sources/AppDelegate.swift
++++ b/submodules/TelegramUI/Sources/AppDelegate.swift
+@@ -290,7 +290,10 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
+         let appGroupName = "group.\(baseAppBundleId)"
+ 
+         let configuration = URLSessionConfiguration.background(withIdentifier: identifier)
+-        configuration.sharedContainerIdentifier = appGroupName
++        // Kasper: при подписи через ESign, KSign, Scarlet общей папки может не быть
++        if FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupName) != nil {
++            configuration.sharedContainerIdentifier = appGroupName
++        }
+         configuration.isDiscretionary = false
+         let session = URLSession(configuration: configuration, delegate: self, delegateQueue: .main)
+         self.urlSessions.append(session)
+@@ -529,7 +532,25 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
+         
+         let baseAppBundleId = Bundle.main.bundleIdentifier!
+         let appGroupName = "group.\(baseAppBundleId)"
+-        let maybeAppGroupUrl = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupName)
++        var maybeAppGroupUrl = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupName)
++        if maybeAppGroupUrl == nil {
++            // Kasper: ESign, KSign, Scarlet, Feather и другие подписчики часто не выдают приложению
++            // общую папку (App Group). Kasper собран без расширений, поэтому она ему не нужна:
++            // храним данные в собственной папке приложения, иначе запуск падает в чёрный экран.
++            if let supportUrl = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
++                let kasperUrl = supportUrl.appendingPathComponent("KasperData", isDirectory: true)
++                do {
++                    try FileManager.default.createDirectory(at: kasperUrl, withIntermediateDirectories: true, attributes: nil)
++                    var values = URLResourceValues()
++                    values.isExcludedFromBackup = true
++                    var mutableUrl = kasperUrl
++                    try? mutableUrl.setResourceValues(values)
++                    maybeAppGroupUrl = kasperUrl
++                } catch {
++                    maybeAppGroupUrl = nil
++                }
++            }
++        }
+         
+         let buildConfig = BuildConfig(baseAppBundleId: baseAppBundleId)
+         self.buildConfig = buildConfig
+@@ -642,7 +663,7 @@ private func extractAccountManagerState(records: AccountRecordsView<TelegramAcco
+         )
+         
+         guard let appGroupUrl = maybeAppGroupUrl else {
+-            self.mainWindow?.presentNative(UIAlertController(title: nil, message: "Error 2", preferredStyle: .alert))
++            self.mainWindow?.presentNative(UIAlertController(title: "Kasper", message: "Не удалось открыть папку с данными. Переустановите Kasper.", preferredStyle: .alert))
+             return true
+         }
+         

@@ -86,6 +86,10 @@ jobs:
         run: |
           cd "$SRC_DIR"
           git apply --whitespace=nowarn "$GITHUB_WORKSPACE/patches/kasper.patch"
+          # Kasper: запуск при подписи через ESign, KSign, Scarlet (без общей папки App Group)
+          if [ -f "$GITHUB_WORKSPACE/patches/kasper-esign.patch" ]; then
+            git apply --whitespace=nowarn "$GITHUB_WORKSPACE/patches/kasper-esign.patch"
+          fi
           git status --short
 
       - name: Write configuration
