@@ -3041,8 +3041,10 @@ index 0000000..50beda9
 +    case radio
 +    case features
 +    case icons
++    case appIcon
 +    case plugins
 +    case sessions
++    case gifts
 +    case all
 +
 +    var title: String {
@@ -3069,8 +3071,10 @@ index 0000000..50beda9
 +        case .radio: return "Радио"
 +        case .features: return "Функции Kasper"
 +        case .icons: return "Иконки"
++        case .appIcon: return "Иконка приложения"
 +        case .plugins: return "Плагины"
 +        case .sessions: return "Сессии"
++        case .gifts: return "Визуальные подарки"
 +        case .all: return "Все настройки"
 +        }
 +    }
@@ -3099,8 +3103,10 @@ index 0000000..50beda9
 +        case .radio: return KasperRadio.shared.statusText
 +        case .features: return "Стена, спецэффекты, значок в профиле"
 +        case .icons: return "Наборы иконок, замена значков интерфейса"
++        case .appIcon: return "Выбор цвета иконки Kasper"
 +        case .plugins: return "JS-плагины расширяют функциональность Kasper без пересборки. Плагины выполняются в изолированной среде JavaScriptCore."
 +        case .sessions: return "Устройства, где открыт ваш аккаунт"
++        case .gifts: return "Отправка визуальных подарков и анимаций в чат"
 +        case .all: return "Полный список настроек"
 +        }
 +    }
@@ -3130,8 +3136,10 @@ index 0000000..50beda9
 +        case .radio: return "dot.radiowaves.left.and.right"
 +        case .features: return "kasper.logo"
 +        case .icons: return "square.grid.2x2.fill"
++        case .appIcon: return "app.fill"
 +        case .plugins: return "puzzlepiece.extension.fill"
 +        case .sessions: return "clock.fill"
++        case .gifts: return "gift.fill"
 +        case .all: return "list.bullet"
 +        }
 +    }
@@ -3300,7 +3308,10 @@ index 0000000..50beda9
 +/// Строка версии в шапке; если включены локальные звёзды — рядом их баланс.
 +private func kasperHeaderSubtitle() -> String {
 +    if KasperSettings.showLocalStars && KasperSettings.localStars > 0 {
-+        return "\(KasperAbout.versionString)  ·  ⭐ \(kasperFormatNumber(KasperSettings.localStars))"
++        let balance = KasperSettings.localStars
++        let formatted = kasperFormatNumber(balance)
++        let tier = balance >= 10000 ? "🌟" : "⭐"
++        return "\(KasperAbout.versionString)  ·  \(tier) \(formatted) Stars"
 +    }
 +    return KasperAbout.versionString
 +}
@@ -3469,6 +3480,9 @@ index 0000000..50beda9
 +                }),
 +                .link(id: "appearance-icons", title: "Иконки Kasper", subtitle: "Белые символы или цветные подложки", symbol: "square.grid.2x2.fill", badge: nil, action: {
 +                    kasperOpen(.icons, context: context, navigation: navigation)
++                }),
++                .link(id: "appearance-appicon", title: "Иконка приложения", subtitle: KasperSettings.alternateAppIcon.isEmpty ? "Стандартная" : KasperSettings.alternateAppIcon, symbol: "app.fill", badge: nil, action: {
++                    kasperOpen(.appIcon, context: context, navigation: navigation)
 +                }),
 +                .link(id: "appearance-glass", title: "Стекло", subtitle: "Liquid Glass или стекло старых iOS", symbol: "drop.fill", badge: nil, action: {
 +                    kasperOpen(.glass, context: context, navigation: navigation)
@@ -3658,6 +3672,12 @@ index 0000000..50beda9
 +                    KasperSettings.localNickname = value.trimmingCharacters(in: .whitespacesAndNewlines)
 +                }),
 +                .text(id: "nickname-footer", text: "Локальный ник виден только в Kasper. Настоящий username не меняется.")
++            ],
++            [
++                .input(id: "localPhone", title: "📞", placeholder: "+7 999 123-45-67", value: KasperSettings.localPhoneNumber, set: { value in
++                    KasperSettings.localPhoneNumber = value.trimmingCharacters(in: .whitespacesAndNewlines)
++                }),
++                .text(id: "localPhone-footer", text: "Локальный номер виден только на этом телефоне в профиле. Настоящий номер не меняется и не отправляется.")
 +            ],
 +            [
 +                .link(id: "features-plugins", title: "Плагины", subtitle: "Свои JS-функции поверх Kasper", symbol: "puzzlepiece.extension.fill", badge: nil, action: {
@@ -4881,7 +4901,7 @@ new file mode 100644
 index 0000000..c34aab7
 --- /dev/null
 +++ b/submodules/TelegramCore/Sources/Kasper/KasperSettings.swift
-@@ -0,0 +1,672 @@
+@@ -0,0 +1,688 @@
 +import Foundation
 +import Postbox
 +import SwiftSignalKit
@@ -4932,6 +4952,8 @@ index 0000000..c34aab7
 +        static let watermarkVideoNotes = "kasper.ui.watermarkVideoNotes"
 +        static let screenshotBadge = "kasper.ui.screenshotBadge"
 +        static let expandedSections = "kasper.ui.expandedSections"
++        static let localPhoneNumber = "kasper.localPhoneNumber"
++        static let alternateAppIcon = "kasper.ui.alternateAppIcon"
 +    }
 +
 +    /// Пометка, которая дописывается к сохранённому удалённому сообщению.
@@ -5257,6 +5279,25 @@ index 0000000..c34aab7
 +    public static var localNickname: String {
 +        get { return defaults.string(forKey: Key.localNickname) ?? "" }
 +        set { defaults.set(newValue, forKey: Key.localNickname) }
++    }
++
++    /// Локальный телефонный номер: виден только на этом телефоне, настоящий номер не меняется.
++    public static var localPhoneNumber: String {
++        get { return defaults.string(forKey: Key.localPhoneNumber) ?? "" }
++        set { defaults.set(newValue, forKey: Key.localPhoneNumber) }
++    }
++
++    /// Выбранная альтернативная иконка приложения (пустая строка — стандартная).
++    public static var alternateAppIcon: String {
++        get { return defaults.string(forKey: Key.alternateAppIcon) ?? "" }
++        set {
++            defaults.set(newValue, forKey: Key.alternateAppIcon)
++            if newValue.isEmpty {
++                UIApplication.shared.setAlternateIconName(nil)
++            } else {
++                UIApplication.shared.setAlternateIconName(newValue)
++            }
++        }
 +    }
 +
 +    // MARK: - Сообщения, удалённые самим пользователем
@@ -6378,12 +6419,42 @@ index 80b7f20..bbc66b3 100644
          
          if let cachedUserData = data.cachedData as? CachedUserData, cachedUserData.flags.contains(.unofficialSecurityRisk) {
              items[.unofficial]!.append(PeerInfoScreenInfoItem(id: 0, title: "", text: .markdown(presentationData.strings.PeerInfo_UnofficialSecurityRisk(EnginePeer(user).compactDisplayTitle).string), style: .compact, linkAction: nil))
-@@ -205,6 +269,8 @@ func infoItems(
+@@ -205,6 +269,36 @@ func infoItems(
              )
          }
          
 +        items[currentPeerInfoSection]!.append(contentsOf: kasperIdItems(peerId: user.id, prefix: "", startingId: ItemKasperId, withCreationDate: true, presentationData: presentationData, interaction: interaction))
-+        
++
++        // Kasper: показываем локальный ник вместо username, если задан
++        let kasperLocalNick = KasperSettings.localNickname
++        if !kasperLocalNick.isEmpty {
++            items[currentPeerInfoSection]!.append(PeerInfoScreenLabeledValueItem(
++                id: ItemKasperId + 10,
++                label: "Ник · локально",
++                text: "@\(kasperLocalNick)",
++                textColor: .accent,
++                action: nil,
++                requestLayout: { animated in
++                    interaction.requestLayout(animated)
++                }
++            ))
++        }
++
++        // Kasper: показываем локальный номер телефона, если задан
++        let kasperLocalPhone = KasperSettings.localPhoneNumber
++        if !kasperLocalPhone.isEmpty {
++            items[currentPeerInfoSection]!.append(PeerInfoScreenLabeledValueItem(
++                id: ItemKasperId + 11,
++                label: "Телефон · локально",
++                text: kasperLocalPhone,
++                textColor: .primary,
++                action: nil,
++                requestLayout: { animated in
++                    interaction.requestLayout(animated)
++                }
++            ))
++        }
++
          if let cachedData = data.cachedData as? CachedUserData {
              if let birthday = cachedData.birthday {
                  let isBirthdayToday = hasBirthdayToday(birthday: birthday)
@@ -8088,7 +8159,7 @@ diff --git a/submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift 
 index 07cef5b..5fb3dc3 100644
 --- a/submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift
 +++ b/submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift
-@@ -2570,13 +2570,13 @@ func chatAvailableMessageActionsImpl(engine: TelegramEngine, accountPeerId: Engi
+@@ -2570,13 +2570,14 @@ func chatAvailableMessageActionsImpl(engine: TelegramEngine, accountPeerId: Engi
                      }
                  }
                  
@@ -8100,6 +8171,7 @@ index 07cef5b..5fb3dc3 100644
 -                    isCopyProtected = true
 -                }
 +                // Kasper: disable copy protection checks
++                isCopyProtected = false
 +                // if message.isCopyProtected() || message.containsSecretMedia {
 +                //     isCopyProtected = true
 +                // }
@@ -8109,3 +8181,350 @@ index 07cef5b..5fb3dc3 100644
                  
                  for media in message.media {
                      if let invoice = media as? TelegramMediaInvoice, let _ = invoice.extendedMedia {
+
+diff --git a/submodules/TelegramCore/Sources/Kasper/KasperTextFormatting.swift b/submodules/TelegramCore/Sources/Kasper/KasperTextFormatting.swift
+new file mode 100644
+index 0000000..a1b2c3d
+--- /dev/null
++++ b/submodules/TelegramCore/Sources/Kasper/KasperTextFormatting.swift
+@@ -0,0 +1,120 @@
++import Foundation
++import Postbox
++import TelegramApi
++
++/// Kasper: форматирование текста сообщений.
++/// Добавляет entities (bold, italic, mono и т.д.), чтобы получатели видели
++/// стиль текста, а не только автор. Работает как обёртка над стандартным
++/// Telegram text entity API: клиент отправляет сообщение с entities,
++/// и сервер сохраняет и доставляет их в первозданном виде.
++public enum KasperTextFormatting {
++    /// Оборачивает весь текст в жирный стиль.
++    public static func bold(_ text: String) -> (String, [MessageTextEntity]) {
++        let entity = MessageTextEntity(
++            range: 0 ..< text.utf16.count,
++            type: .Bold
++        )
++        return (text, [entity])
++    }
++
++    /// Оборачивает весь текст в курсив.
++    public static func italic(_ text: String) -> (String, [MessageTextEntity]) {
++        let entity = MessageTextEntity(
++            range: 0 ..< text.utf16.count,
++            type: .Italic
++        )
++        return (text, [entity])
++    }
++
++    /// Оборачивает весь текст в моноширинный шрифт.
++    public static func mono(_ text: String) -> (String, [MessageTextEntity]) {
++        let entity = MessageTextEntity(
++            range: 0 ..< text.utf16.count,
++            type: .Code
++        )
++        return (text, [entity])
++    }
++
++    /// Оборачивает весь текст в зачёркнутый стиль.
++    public static func strikethrough(_ text: String) -> (String, [MessageTextEntity]) {
++        let entity = MessageTextEntity(
++            range: 0 ..< text.utf16.count,
++            type: .Strikethrough
++        )
++        return (text, [entity])
++    }
++
++    /// Оборачивает весь текст в подчёркнутый стиль.
++    public static func underline(_ text: String) -> (String, [MessageTextEntity]) {
++        let entity = MessageTextEntity(
++            range: 0 ..< text.utf16.count,
++            type: .Underline
++        )
++        return (text, [entity])
++    }
++
++    /// Оборачивает текст в спойлер.
++    public static func spoiler(_ text: String) -> (String, [MessageTextEntity]) {
++        let entity = MessageTextEntity(
++            range: 0 ..< text.utf16.count,
++            type: .Spoiler
++        )
++        return (text, [entity])
++    }
++
++    /// Парсит Markdown-синтаксис из текста и возвращает entities.
++    /// Поддерживает: **bold**, *italic*, `code`, ~~strikethrough~~, __underline__, ||spoiler||
++    public static func parseMarkdown(_ text: String) -> (String, [MessageTextEntity]) {
++        var result = text
++        var entities: [MessageTextEntity] = []
++
++        let patterns: [(String, String, MessageTextEntityType)] = [
++            ("\\*\\*(.+?)\\*\\*", "**", .Bold),
++            ("\\*(.+?)\\*", "*", .Italic),
++            ("`(.+?)`", "`", .Code),
++            ("~~(.+?)~~", "~~", .Strikethrough),
++            ("__(.+?)__", "__", .Underline),
++            ("\\|\\|(.+?)\\|\\|", "||", .Spoiler)
++        ]
++
++        for (pattern, marker, entityType) in patterns {
++            guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
++                continue
++            }
++            var offset = 0
++            let matches = regex.matches(in: result, options: [], range: NSRange(location: 0, length: result.utf16.count))
++            for match in matches {
++                guard match.numberOfRanges >= 2 else { continue }
++                let fullRange = match.range
++                let innerRange = match.range(at: 1)
++
++                let adjustedFull = NSRange(location: fullRange.location - offset, length: fullRange.length)
++                let markerLen = marker.utf16.count
++
++                guard let fullSwiftRange = Range(adjustedFull, in: result) else { continue }
++                let inner = String(result[fullSwiftRange]).dropFirst(markerLen).dropLast(markerLen)
++                result.replaceSubrange(fullSwiftRange, with: inner)
++
++                let entityStart = adjustedFull.location
++                let entityLength = innerRange.length
++                entities.append(MessageTextEntity(
++                    range: entityStart ..< (entityStart + entityLength),
++                    type: entityType
++                ))
++
++                offset += markerLen * 2
++            }
++        }
++
++        return (result, entities)
++    }
++
++    /// Применяет текущий стиль Kasper Font к исходящему сообщению.
++    /// Если шрифт Bold — всё сообщение уходит bold entity.
++    /// Если Italic — italic entity. Иначе — без изменений.
++    public static func applyCurrentStyle(_ text: String) -> (String, [MessageTextEntity]) {
++        let defaults = UserDefaults.standard
++        let fontName = defaults.string(forKey: "kasper.font.name") ?? ""
++        let fontWeight = defaults.string(forKey: "kasper.font.weight") ?? ""
++        if fontWeight.lowercased().contains("bold") || fontName.lowercased().contains("bold") {
++            return bold(text)
++        }
++        if fontWeight.lowercased().contains("italic") || fontName.lowercased().contains("italic") {
++            return italic(text)
++        }
++        return (text, [])
++    }
++}
+diff --git a/submodules/TelegramUI/Sources/Kasper/KasperGiftAnimation.swift b/submodules/TelegramUI/Sources/Kasper/KasperGiftAnimation.swift
+new file mode 100644
+index 0000000..b2c3d4e
+--- /dev/null
++++ b/submodules/TelegramUI/Sources/Kasper/KasperGiftAnimation.swift
+@@ -0,0 +1,182 @@
++import Foundation
++import UIKit
++import QuartzCore
++import Display
++
++/// Kasper: визуальные подарки — локальные анимации поверх чата.
++/// Не отправляются на сервер, видны только отправителю.
++public final class KasperGiftAnimation {
++    public enum GiftType: String, CaseIterable {
++        case heart
++        case star
++        case fire
++        case diamond
++        case crown
++        case rocket
++        case confetti
++        case nft
++
++        public var emoji: String {
++            switch self {
++            case .heart: return "❤️"
++            case .star: return "⭐"
++            case .fire: return "🔥"
++            case .diamond: return "💎"
++            case .crown: return "👑"
++            case .rocket: return "🚀"
++            case .confetti: return "🎉"
++            case .nft: return "🖼"
++            }
++        }
++
++        public var title: String {
++            switch self {
++            case .heart: return "Сердце"
++            case .star: return "Звезда"
++            case .fire: return "Огонь"
++            case .diamond: return "Алмаз"
++            case .crown: return "Корона"
++            case .rocket: return "Ракета"
++            case .confetti: return "Конфетти"
++            case .nft: return "NFT"
++            }
++        }
++    }
++
++    /// Показывает анимацию подарка поверх указанного view.
++    public static func play(_ type: GiftType, over view: UIView) {
++        let overlay = UIView(frame: view.bounds)
++        overlay.isUserInteractionEnabled = false
++        overlay.backgroundColor = .clear
++        view.addSubview(overlay)
++
++        switch type {
++        case .heart:
++            playHeartAnimation(in: overlay)
++        case .star:
++            playStarAnimation(in: overlay)
++        case .fire:
++            playFireAnimation(in: overlay)
++        case .confetti:
++            playConfettiAnimation(in: overlay)
++        default:
++            playGenericEmojiAnimation(type.emoji, in: overlay)
++        }
++
++        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
++            UIView.animate(withDuration: 0.5, animations: {
++                overlay.alpha = 0.0
++            }, completion: { _ in
++                overlay.removeFromSuperview()
++            })
++        }
++    }
++
++    private static func playHeartAnimation(in container: UIView) {
++        let count = 12
++        for i in 0 ..< count {
++            let label = UILabel()
++            label.text = "❤️"
++            label.font = .systemFont(ofSize: CGFloat.random(in: 24...48))
++            label.sizeToFit()
++            let startX = CGFloat.random(in: 0...container.bounds.width)
++            label.center = CGPoint(x: startX, y: container.bounds.height + 20)
++            container.addSubview(label)
++
++            let delay = Double(i) * 0.15
++            UIView.animate(withDuration: 2.0, delay: delay, options: .curveEaseOut, animations: {
++                label.center = CGPoint(
++                    x: startX + CGFloat.random(in: -60...60),
++                    y: CGFloat.random(in: -50...container.bounds.height * 0.3)
++                )
++                label.alpha = 0.0
++                label.transform = CGAffineTransform(scaleX: 1.5, y: 1.5).rotated(by: CGFloat.random(in: -0.5...0.5))
++            }, completion: { _ in
++                label.removeFromSuperview()
++            })
++        }
++    }
++
++    private static func playStarAnimation(in container: UIView) {
++        let count = 15
++        let center = CGPoint(x: container.bounds.midX, y: container.bounds.midY)
++        for i in 0 ..< count {
++            let label = UILabel()
++            label.text = ["⭐", "🌟", "✨"].randomElement()!
++            label.font = .systemFont(ofSize: CGFloat.random(in: 20...40))
++            label.sizeToFit()
++            label.center = center
++            label.alpha = 0.0
++            container.addSubview(label)
++
++            let angle = CGFloat.random(in: 0...(2 * .pi))
++            let radius = CGFloat.random(in: 80...200)
++            let delay = Double(i) * 0.1
++
++            UIView.animate(withDuration: 1.5, delay: delay, options: .curveEaseOut, animations: {
++                label.center = CGPoint(
++                    x: center.x + cos(angle) * radius,
++                    y: center.y + sin(angle) * radius
++                )
++                label.alpha = 1.0
++                label.transform = CGAffineTransform(scaleX: 1.3, y: 1.3)
++            }, completion: { _ in
++                UIView.animate(withDuration: 0.5, animations: {
++                    label.alpha = 0.0
++                }, completion: { _ in
++                    label.removeFromSuperview()
++                })
++            })
++        }
++    }
++
++    private static func playFireAnimation(in container: UIView) {
++        let count = 20
++        for i in 0 ..< count {
++            let label = UILabel()
++            label.text = ["🔥", "🧡", "💛"].randomElement()!
++            label.font = .systemFont(ofSize: CGFloat.random(in: 20...36))
++            label.sizeToFit()
++            let startX = container.bounds.midX + CGFloat.random(in: -40...40)
++            label.center = CGPoint(x: startX, y: container.bounds.height - 20)
++            label.alpha = 0.8
++            container.addSubview(label)
++
++            let delay = Double(i) * 0.08
++            UIView.animate(withDuration: 1.5, delay: delay, options: .curveEaseIn, animations: {
++                label.center = CGPoint(
++                    x: startX + CGFloat.random(in: -30...30),
++                    y: container.bounds.midY - CGFloat.random(in: 50...150)
++                )
++                label.alpha = 0.0
++                label.transform = CGAffineTransform(scaleX: 0.5, y: 0.5)
++            }, completion: { _ in
++                label.removeFromSuperview()
++            })
++        }
++    }
++
++    private static func playConfettiAnimation(in container: UIView) {
++        let emojis = ["🎉", "🎊", "✨", "🌈", "🎈", "💫", "🎀", "🎁"]
++        let count = 25
++        for i in 0 ..< count {
++            let label = UILabel()
++            label.text = emojis.randomElement()!
++            label.font = .systemFont(ofSize: CGFloat.random(in: 16...32))
++            label.sizeToFit()
++            let startX = CGFloat.random(in: 0...container.bounds.width)
++            label.center = CGPoint(x: startX, y: -20)
++            label.alpha = 1.0
++            container.addSubview(label)
++
++            let delay = Double(i) * 0.06
++            UIView.animate(withDuration: 2.5, delay: delay, options: .curveEaseIn, animations: {
++                label.center = CGPoint(
++                    x: startX + CGFloat.random(in: -80...80),
++                    y: container.bounds.height + 20
++                )
++                label.transform = CGAffineTransform(rotationAngle: CGFloat.random(in: -3...3))
++            }, completion: { _ in
++                label.removeFromSuperview()
++            })
++        }
++    }
++
++    private static func playGenericEmojiAnimation(_ emoji: String, in container: UIView) {
++        let label = UILabel()
++        label.text = emoji
++        label.font = .systemFont(ofSize: 80)
++        label.sizeToFit()
++        label.center = CGPoint(x: container.bounds.midX, y: container.bounds.midY)
++        label.alpha = 0.0
++        label.transform = CGAffineTransform(scaleX: 0.3, y: 0.3)
++        container.addSubview(label)
++
++        UIView.animate(withDuration: 0.6, delay: 0, usingSpringWithDamping: 0.5, initialSpringVelocity: 0.8, options: [], animations: {
++            label.alpha = 1.0
++            label.transform = .identity
++        }, completion: { _ in
++            UIView.animate(withDuration: 1.0, delay: 1.0, options: .curveEaseIn, animations: {
++                label.alpha = 0.0
++                label.transform = CGAffineTransform(scaleX: 2.0, y: 2.0)
++            }, completion: { _ in
++                label.removeFromSuperview()
++            })
++        })
++    }
++}
