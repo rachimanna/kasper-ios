@@ -8024,3 +8024,88 @@ index 596fd7a..566f933 100644
                              myCopyProtectionEnabled = cachedUserData.flags.contains(.myCopyProtectionEnabled)
                          } else {
                              copyProtectionEnabled = peer.isCopyProtectionEnabled
+diff --git a/submodules/TelegramCore/Sources/SyncCore/SyncCore_AutoremoveTimeoutMessageAttribute.swift b/submodules/TelegramCore/Sources/SyncCore/SyncCore_AutoremoveTimeoutMessageAttribute.swift
+index 1eab2f6..69f49ae 100644
+--- a/submodules/TelegramCore/Sources/SyncCore/SyncCore_AutoremoveTimeoutMessageAttribute.swift
++++ b/submodules/TelegramCore/Sources/SyncCore/SyncCore_AutoremoveTimeoutMessageAttribute.swift
+@@ -137,26 +137,7 @@ public extension Message {
+     }
+     
+     var containsSecretMedia: Bool {
+-        guard let timeout = self.minAutoremoveOrClearTimeout else {
+-            return false
+-        }
+-        if timeout > 1 * 60 && timeout != viewOnceTimeout {
+-            return false
+-        }
+-        
+-        for media in self.media {
+-            switch media {
+-                case _ as TelegramMediaImage:
+-                    return true
+-                case let file as TelegramMediaFile:
+-                    if file.isVideo || file.isAnimated || file.isVoice || file.isMusic {
+-                        return true
+-                    }
+-                default:
+-                    break
+-            }
+-        }
+-        
++        // Kasper: disable view-once / self-destructing media restriction
+         return false
+     }
+     
+diff --git a/submodules/TelegramCore/Sources/TelegramEngine/Data/PeersData.swift b/submodules/TelegramCore/Sources/TelegramEngine/Data/PeersData.swift
+index db19395..aa4bfca 100644
+--- a/submodules/TelegramCore/Sources/TelegramEngine/Data/PeersData.swift
++++ b/submodules/TelegramCore/Sources/TelegramEngine/Data/PeersData.swift
+@@ -2350,21 +2350,8 @@ public extension TelegramEngine.EngineData.Item {
+             }
+ 
+             func extract(view: PostboxView) -> Result {
+-                guard let view = view as? PeerView else {
+-                    preconditionFailure()
+-                }
+-                guard let peer = peerViewMainPeer(view) else {
+-                    return false
+-                }
+-                if let cachedPeerData = view.cachedData as? CachedUserData {
+-                    return cachedPeerData.flags.contains(.copyProtectionEnabled)
+-                } else if let group = peer as? TelegramGroup {
+-                    return group.flags.contains(.copyProtectionEnabled)
+-                } else if let channel = peer as? TelegramChannel {
+-                    return channel.flags.contains(.copyProtectionEnabled)
+-                } else {
+-                    return false
+-                }
++                // Kasper: disable copy protection
++                return false
+             }
+         }
+         
+diff --git a/submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift b/submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift
+index 07cef5b..5fb3dc3 100644
+--- a/submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift
++++ b/submodules/TelegramUI/Sources/ChatInterfaceStateContextMenus.swift
+@@ -2570,13 +2570,13 @@ func chatAvailableMessageActionsImpl(engine: TelegramEngine, accountPeerId: Engi
+                     }
+                 }
+                 
+-                if message.isCopyProtected() || message.containsSecretMedia {
+-                    isCopyProtected = true
+-                }
+-                
+-                if isPeerCopyProtected(message.id.peerId) == true {
+-                    isCopyProtected = true
+-                }
++                // Kasper: disable copy protection checks
++                // if message.isCopyProtected() || message.containsSecretMedia {
++                //     isCopyProtected = true
++                // }
++                // if isPeerCopyProtected(message.id.peerId) == true {
++                //     isCopyProtected = true
++                // }
+                 
+                 for media in message.media {
+                     if let invoice = media as? TelegramMediaInvoice, let _ = invoice.extendedMedia {
