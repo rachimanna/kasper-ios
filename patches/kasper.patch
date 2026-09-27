@@ -9008,6 +9008,439 @@ index 00000000..4ee57760
 +        }
 +    }
 +}
+diff --git a/submodules/TelegramCore/Sources/Kasper/KasperAutoComma.swift b/submodules/TelegramCore/Sources/Kasper/KasperAutoComma.swift
+new file mode 100644
+index 00000000..3f94bae4
+--- /dev/null
++++ b/submodules/TelegramCore/Sources/Kasper/KasperAutoComma.swift
+@@ -0,0 +1,427 @@
++import Foundation
++
++/// Kasper: автоматические запятые в исходящих сообщениях.
++///
++/// Работает всегда, на телефоне и без интернета. Правила нарочно осторожные:
++/// запятая ставится только там, где русская пунктуация требует её почти всегда
++/// (перед «что», «чтобы», «если», «который», «а», «но», вокруг «кстати», «наверное»,
++/// после «привет» в начале фразы и т.п.). Где правило может ошибиться — текст не меняется.
++/// Существующие знаки препинания не трогаются: запятая добавляется только между
++/// двумя словами, разделёнными одними пробелами.
++public enum KasperAutoComma {
++    private enum Gap {
++        /// Начало текста или новое предложение (после . ! ? … или переноса строки).
++        case start
++        /// Между словами только пробелы — сюда можно поставить запятую.
++        case space
++        /// Между словами уже есть знак, эмодзи или скобка — не трогаем.
++        case other
++    }
++
++    private struct Word {
++        /// Слово в нижнем регистре, «ё» заменена на «е».
++        let text: String
++        /// Начало и конец слова в UTF-16 (как в NSString).
++        let start: Int
++        let end: Int
++        /// Что стоит перед словом.
++        let gap: Gap
++    }
++
++    /// Места (смещения UTF-16), куда нужно вставить запятую. Отсортированы по возрастанию.
++    public static func commaOffsets(in string: String) -> [Int] {
++        let words = self.words(in: string)
++        if words.count < 2 {
++            return []
++        }
++        var result = Set<Int>()
++        var consumed = Set<Int>()
++
++        func joined(_ i: Int) -> Bool {
++            return i > 0 && i < words.count && words[i].gap == .space
++        }
++        func text(_ i: Int) -> String? {
++            return i >= 0 && i < words.count ? words[i].text : nil
++        }
++        func nextText(_ i: Int) -> String? {
++            return joined(i + 1) ? words[i + 1].text : nil
++        }
++        func isStart(_ i: Int) -> Bool {
++            return words[i].gap == .start
++        }
++
++        // Вводные слова и сочетания: запятые с двух сторон.
++        func introCommas(from first: Int, to last: Int) {
++            for index in first ... last {
++                consumed.insert(index)
++            }
++            if joined(first) && !introSkipPrevious.contains(words[first - 1].text) {
++                result.insert(words[first - 1].end)
++            }
++            var end = last
++            if nextText(end) == "же" {
++                end += 1
++                consumed.insert(end)
++            }
++            if joined(end + 1) && words[end + 1].text != "же" {
++                result.insert(words[end].end)
++            }
++        }
++
++        // Придаточное: запятая перед словом (или перед предлогом, если слово идёт после него).
++        func clauseComma(_ i: Int, blocked: Set<String>, required: Set<String>?, allowPreposition: Bool) {
++            guard joined(i) else {
++                return
++            }
++            var target = i
++            if allowPreposition && prepositions.contains(words[i - 1].text) {
++                target = i - 1
++                guard joined(target) else {
++                    return
++                }
++            }
++            let before = words[target - 1].text
++            // «то, что ты сказал», «про то, что…» — но не «а то что», «не то что».
++            let isThatWhat = before == "то" && words[i].text == "что" && !(joined(target - 1) && connectors.contains(words[target - 2].text))
++            if blocked.contains(before) && !isThatWhat {
++                return
++            }
++            if let required = required, !required.contains(before) {
++                return
++            }
++            result.insert(words[target - 1].end)
++        }
++
++        // 1. Вводные сочетания из нескольких слов.
++        var index = 0
++        while index < words.count {
++            var matched = false
++            for phrase in introPhrases {
++                let last = index + phrase.count - 1
++                if last >= words.count {
++                    continue
++                }
++                var ok = true
++                for offset in 0 ..< phrase.count {
++                    if words[index + offset].text != phrase[offset] || (offset > 0 && !joined(index + offset)) {
++                        ok = false
++                        break
++                    }
++                }
++                if ok {
++                    introCommas(from: index, to: last)
++                    index = last + 1
++                    matched = true
++                    break
++                }
++            }
++            if !matched {
++                index += 1
++            }
++        }
++
++        // 2. Отдельные слова.
++        for i in 0 ..< words.count {
++            if consumed.contains(i) {
++                continue
++            }
++            let word = words[i].text
++            let next = nextText(i)
++
++            if introWords.contains(word) {
++                introCommas(from: i, to: i)
++                continue
++            }
++            if startIntroWords.contains(word) {
++                let atStart = isStart(i) || (joined(i) && introSkipPrevious.contains(words[i - 1].text))
++                if atStart, let next = next, startIntroFollowers.contains(next) || word == "короче" {
++                    introCommas(from: i, to: i)
++                }
++                continue
++            }
++            if let excluded = startInterjections[word] {
++                if isStart(i), let next = next, !excluded.contains(next), word != "нет" || negationFollowers.contains(next) {
++                    result.insert(words[i].end)
++                }
++                continue
++            }
++            if let second = conjunctionPairs[word], next == second {
++                if joined(i) && !pairSkipPrevious.contains(words[i - 1].text) && !(text(i + 2) == "ли" && joined(i + 2)) {
++                    result.insert(words[i - 1].end)
++                }
++                consumed.insert(i + 1)
++                continue
++            }
++            if word == "а" || word == "но" || word == "зато" {
++                if next != nil {
++                    clauseComma(i, blocked: connectors, required: nil, allowPreposition: false)
++                }
++                continue
++            }
++            if word == "хотя" {
++                if next != "бы" {
++                    clauseComma(i, blocked: connectorsAndPronouns, required: nil, allowPreposition: false)
++                }
++                continue
++            }
++            if word == "если" || word == "поскольку" || word == "будто" || word == "словно" || word == "ибо" || word == "причем" {
++                clauseComma(i, blocked: connectorsAndPronouns, required: nil, allowPreposition: false)
++                continue
++            }
++            if word == "чтобы" {
++                clauseComma(i, blocked: connectorsAndPronouns.union(["того", "для"]), required: nil, allowPreposition: false)
++                continue
++            }
++            if word.hasPrefix("котор") {
++                clauseComma(i, blocked: connectors, required: nil, allowPreposition: true)
++                continue
++            }
++            if let next = next, indefiniteFollowers.contains(next) {
++                continue
++            }
++            if word == "что" || word == "когда" || word == "чем" {
++                if word == "что" && next == nil {
++                    // «Знаешь что?» — вопрос, а не придаточное.
++                    continue
++                }
++                clauseComma(i, blocked: connectorsPronounsAndAdverbs, required: nil, allowPreposition: word != "когда")
++                continue
++            }
++            if word == "как" {
++                if let next = next, next == "будто" || next == "только" || next == "если" {
++                    clauseComma(i, blocked: connectorsPronounsAndAdverbs, required: nil, allowPreposition: false)
++                } else if next != nil {
++                    clauseComma(i, blocked: [], required: knowingWords, allowPreposition: false)
++                }
++                continue
++            }
++            if questionWords.contains(word) {
++                clauseComma(i, blocked: [], required: knowingWords, allowPreposition: true)
++                continue
++            }
++        }
++
++        return result.sorted()
++    }
++
++    private static let wordScalars = CharacterSet.letters.union(.decimalDigits)
++    private static let sentenceEnders = CharacterSet(charactersIn: ".!?…\n\r\u{2028}\u{2029}")
++    private static let spaces = CharacterSet(charactersIn: " \t\u{00A0}")
++
++    private static func words(in string: String) -> [Word] {
++        var words: [Word] = []
++        var wordText = ""
++        var wordStart = 0
++        var wordEnd = 0
++        var inWord = false
++        var pendingHyphen = false
++        var gap = ""
++        var offset = 0
++
++        func finishWord() {
++            let isFirst = words.isEmpty
++            words.append(Word(
++                text: wordText.lowercased().replacingOccurrences(of: "ё", with: "е"),
++                start: wordStart,
++                end: wordEnd,
++                gap: classify(gap, isFirst: isFirst)
++            ))
++            gap = pendingHyphen ? "-" : ""
++            pendingHyphen = false
++            inWord = false
++        }
++
++        for scalar in string.unicodeScalars {
++            let length = scalar.value > 0xFFFF ? 2 : 1
++            if wordScalars.contains(scalar) {
++                if inWord {
++                    if pendingHyphen {
++                        wordText.append("-")
++                        pendingHyphen = false
++                    }
++                } else {
++                    inWord = true
++                    wordText = ""
++                    wordStart = offset
++                }
++                wordText.unicodeScalars.append(scalar)
++                wordEnd = offset + length
++            } else if scalar == "-" && inWord && !pendingHyphen {
++                pendingHyphen = true
++            } else {
++                if inWord {
++                    finishWord()
++                }
++                gap.unicodeScalars.append(scalar)
++            }
++            offset += length
++        }
++        if inWord {
++            finishWord()
++        }
++        return words
++    }
++
++    private static func classify(_ gap: String, isFirst: Bool) -> Gap {
++        if isFirst {
++            return .start
++        }
++        var onlySpaces = true
++        for scalar in gap.unicodeScalars {
++            if sentenceEnders.contains(scalar) {
++                return .start
++            }
++            if !spaces.contains(scalar) {
++                onlySpaces = false
++            }
++        }
++        return onlySpaces && !gap.isEmpty ? .space : .other
++    }
++
++    // MARK: - Словари
++
++    /// Союзы и частицы: после них запятая перед «что», «если» и т.п. не ставится.
++    private static let connectors: Set<String> = [
++        "а", "и", "но", "да", "или", "либо", "ну", "же", "ж", "ведь", "вот", "вон", "не", "ни",
++        "то", "так", "ли", "бы", "б", "уж", "даже", "только", "лишь", "именно", "это", "что",
++        "чтобы", "если", "когда", "потому", "как", "чем", "тоже", "также", "еще", "уже", "аж",
++        "мол", "типа", "хотя", "зато", "однако", "поэтому", "пока", "раз", "кроме", "вместо"
++    ]
++
++    private static let pronouns: Set<String> = [
++        "я", "ты", "он", "она", "оно", "мы", "вы", "они", "меня", "тебя", "его", "ее", "нас", "вас",
++        "их", "мне", "тебе", "ему", "ей", "нам", "вам", "им", "мной", "мною", "тобой", "тобою",
++        "кто", "сам", "сама", "сами"
++    ]
++
++    /// Наречия, после которых «что», «когда» чаще начинают вопрос, а не придаточное.
++    private static let adverbs: Set<String> = [
++        "сегодня", "завтра", "вчера", "послезавтра", "сейчас", "потом", "тогда", "здесь", "тут", "там",
++        "теперь", "опять", "снова", "вообще", "кстати", "короче", "ладно", "ну", "давно", "скоро",
++        "вечером", "утром", "днем", "ночью", "всегда", "иногда", "никогда", "реально", "серьезно",
++        "блин", "слушай", "смотри"
++    ]
++
++    private static let connectorsAndPronouns = connectors.union(pronouns)
++    private static let connectorsPronounsAndAdverbs = connectors.union(pronouns).union(adverbs)
++
++    private static let prepositions: Set<String> = [
++        "в", "во", "на", "о", "об", "обо", "про", "за", "с", "со", "к", "ко", "у", "от", "до", "из",
++        "по", "для", "без", "над", "под", "при", "через", "между", "перед", "из-за", "из-под", "после",
++        "около", "насчет", "вокруг", "среди"
++    ]
++
++    /// Слова, после которых вопросительное слово начинает придаточное: «не знаю, где он».
++    private static let knowingWords: Set<String> = [
++        "знаю", "знаешь", "знает", "знаем", "знаете", "знают", "знал", "знала", "знали",
++        "узнай", "узнать", "узнал", "узнала", "узнаешь", "узнаю",
++        "понимаю", "понимаешь", "понимает", "понял", "поняла", "поняли", "понять", "пойми",
++        "понятно", "непонятно", "неясно", "ясно", "неизвестно",
++        "помню", "помнишь", "помнит", "вспомни", "вспомнил", "вспомнила", "забыл", "забыла",
++        "скажи", "скажите", "сказал", "сказала", "сказали", "говорит", "говорил", "говорила",
++        "спроси", "спросите", "спрошу", "спросил", "спросила", "спрашивает", "спрашиваю",
++        "интересно", "неважно", "важно", "пофиг", "плевать", "хз",
++        "видишь", "видел", "видела", "видели", "увидишь", "смотри", "посмотри", "посмотрим", "посмотрю",
++        "покажи", "расскажи", "расскажу", "объясни", "объясню", "представь", "представляешь",
++        "думаю", "подумай", "решай", "решил", "решила", "решим", "угадай", "догадайся",
++        "слышал", "слышала", "пишет", "написал", "написала", "напиши", "уточни", "проверь", "проверю",
++        "разберись", "разберемся", "выясни", "выясню", "зависит", "решать"
++    ]
++
++    /// Вопросительные слова, которые становятся союзом только после «знаю», «скажи» и т.п.
++    private static let questionWords: Set<String> = [
++        "где", "куда", "откуда", "почему", "зачем", "кто", "кого", "кому", "сколько", "скольких",
++        "насколько", "отчего", "чей", "чья", "чье", "чьи", "каков", "какой", "какая", "какое", "какие",
++        "какого", "какому", "каким", "каком", "какую", "каких", "какими"
++    ]
++
++    /// «кто угодно», «где попало», «когда нибудь» — не придаточное.
++    private static let indefiniteFollowers: Set<String> = ["ли", "за", "угодно", "попало", "нибудь", "либо"]
++
++    /// Двухсловные союзы: запятая ставится перед первым словом.
++    private static let conjunctionPairs: [String: String] = [
++        "потому": "что",
++        "оттого": "что",
++        "так": "что"
++    ]
++
++    private static let pairSkipPrevious: Set<String> = connectors.union([
++        "вовсе", "совсем", "точно", "прямо", "почти", "все", "вообще", "ровно"
++    ])
++
++    /// Вводные слова, которые выделяются запятыми в любом месте фразы.
++    private static let introWords: Set<String> = [
++        "кстати", "наверное", "наверно", "конечно", "видимо", "например", "пожалуй", "пожалуйста",
++        "во-первых", "во-вторых", "в-третьих", "в-четвертых", "по-моему", "по-твоему", "по-вашему",
++        "по-любому", "походу", "вообще-то", "блин", "разумеется", "безусловно", "бесспорно"
++    ]
++
++    /// Вводные сочетания из нескольких слов.
++    private static let introPhrases: [[String]] = [
++        ["на", "самом", "деле"],
++        ["в", "конце", "концов"],
++        ["во", "всяком", "случае"],
++        ["по", "правде", "говоря"],
++        ["честно", "говоря"],
++        ["короче", "говоря"],
++        ["к", "сожалению"],
++        ["к", "счастью"],
++        ["скорее", "всего"],
++        ["в", "принципе"],
++        ["между", "прочим"],
++        ["как", "правило"],
++        ["само", "собой"]
++    ]
++
++    /// Вводные слова, которые выделяются только в начале фразы: «Короче, я пошёл».
++    private static let startIntroWords: Set<String> = ["короче", "слушай", "слушайте", "смотри", "смотрите"]
++
++    /// После «слушай»/«смотри» запятая ставится, только если дальше не дополнение
++    /// («слушай, а ты…», но «слушай музыку»).
++    private static let startIntroFollowers: Set<String> = pronouns.union([
++        "а", "ну", "у", "если", "как", "что", "короче", "давай", "давайте", "может", "тут", "там",
++        "вот", "вообще", "кстати", "завтра", "сегодня", "сейчас", "это", "так", "когда", "где",
++        "почему", "зачем", "куда", "есть", "надо", "нужно", "можно", "походу", "наверное", "не",
++        "мой", "моя", "мое", "мои", "твой", "твоя", "твое", "твои", "какой", "какая", "какое", "какие"
++    ])
++
++    /// Междометия и приветствия в начале фразы → запятая после них.
++    /// Значение — слова, после которых запятая не нужна («привет всем», «нет уж»).
++    private static let startInterjections: [String: Set<String>] = {
++        let greetingExclusions: Set<String> = ["всем", "тебе", "вам", "от", "из", "с", "и", "еще", "же"]
++        return [
++            "привет": greetingExclusions,
++            "приветик": greetingExclusions,
++            "приветствую": greetingExclusions,
++            "здравствуй": greetingExclusions,
++            "здравствуйте": greetingExclusions,
++            "здарова": greetingExclusions,
++            "хай": greetingExclusions,
++            "салам": greetingExclusions,
++            "нет": ["нет", "да", "и", "ли", "уж", "бы", "же", "так", "то"],
++            "ладно": ["уж", "бы", "ли", "же"],
++            "ок": [],
++            "окей": [],
++            "ага": ["же"],
++            "угу": [],
++            "ого": ["же"],
++            "ой": ["ли", "же"],
++            "эх": ["же"],
++            "ах": ["же", "ты", "вот"],
++            "ох": ["же", "уж"],
++            "эй": [],
++            "алло": []
++        ]
++    }()
++
++    /// «Нет, конечно», «нет, я не приду» — но не «нет времени».
++    private static let negationFollowers: Set<String> = startIntroFollowers.union([
++        "конечно", "спасибо", "пожалуй", "наверное", "давай", "пока", "потом", "уже", "все", "просто"
++    ])
++
++    /// Перед вводным словом запятая не ставится после этих слов («ну конечно», «а кстати»).
++    private static let introSkipPrevious: Set<String> = [
++        "а", "и", "но", "да", "или", "ну", "ведь", "вот", "же", "так", "не", "ни", "как", "что",
++        "либо", "тоже", "ой", "ах", "эх", "ох", "ага"
++    ]
++}
 diff --git a/submodules/TelegramCore/Sources/Kasper/KasperEditHistory.swift b/submodules/TelegramCore/Sources/Kasper/KasperEditHistory.swift
 new file mode 100644
 index 00000000..17e6e67f
@@ -11406,10 +11839,20 @@ index 596fd7a6..566f9336 100644
                          } else {
                              copyProtectionEnabled = peer.isCopyProtectionEnabled
 diff --git a/submodules/TelegramUI/Sources/ChatControllerNode.swift b/submodules/TelegramUI/Sources/ChatControllerNode.swift
-index 83c19884..612d6e56 100644
+index 83c19884..3c763da8 100644
 --- a/submodules/TelegramUI/Sources/ChatControllerNode.swift
 +++ b/submodules/TelegramUI/Sources/ChatControllerNode.swift
-@@ -5103,11 +5103,13 @@ class ChatControllerNode: ASDisplayNode, ASScrollViewDelegate {
+@@ -5047,7 +5047,8 @@ class ChatControllerNode: ASDisplayNode, ASScrollViewDelegate {
+             if peerId?.namespace != Namespaces.Peer.SecretChat, let interactiveEmojis = self.interactiveEmojis, interactiveEmojis.emojis.contains(trimmedInputText), effectiveInputText.attribute(ChatTextInputAttributes.customEmoji, at: 0, effectiveRange: nil) == nil {
+                 messages.append(.message(text: "", attributes: [], inlineStickers: [:], mediaReference: AnyMediaReference.standalone(media: TelegramMediaDice(emoji: trimmedInputText)), threadId: self.chatLocation.threadId, replyToMessageId: self.chatPresentationInterfaceState.interfaceState.replyMessageSubject?.subjectModel, replyToStoryId: nil, localGroupingKey: nil, correlationId: nil, bubbleUpEmojiOrStickersets: []))
+             } else {
+-                let inputText = convertMarkdownToAttributes(effectiveInputText)
++                // Kasper: автоматические запятые
++                let inputText = kasperInsertingAutoCommas(convertMarkdownToAttributes(effectiveInputText))
+                 
+                 var mediaReference: AnyMediaReference?
+                 var webpage: TelegramMediaWebpage?
+@@ -5103,11 +5104,13 @@ class ChatControllerNode: ASDisplayNode, ASScrollViewDelegate {
                      for text in breakChatInputText(trimChatInputText(inputText)) {
                          if text.length != 0 {
                              var attributes: [MessageAttribute] = []
@@ -11501,6 +11944,45 @@ index 00000000..15c6aae3
 +            }
 +        }
 +    }
++}
+diff --git a/submodules/TelegramUI/Sources/Kasper/KasperAutoCommaInput.swift b/submodules/TelegramUI/Sources/Kasper/KasperAutoCommaInput.swift
+new file mode 100644
+index 00000000..32a4f9b0
+--- /dev/null
++++ b/submodules/TelegramUI/Sources/Kasper/KasperAutoCommaInput.swift
+@@ -0,0 +1,33 @@
++import Foundation
++import TelegramCore
++import TextFormat
++
++/// Kasper: расставляет запятые в тексте из поля ввода перед отправкой (см. `KasperAutoComma`).
++/// Код, ссылки, упоминания, даты и кастомные эмодзи не трогаются. Оформление
++/// (жирный, курсив, цитата) сохраняется: запятая получает оформление слова перед ней.
++func kasperInsertingAutoCommas(_ text: NSAttributedString) -> NSAttributedString {
++    let offsets = KasperAutoComma.commaOffsets(in: text.string)
++    if offsets.isEmpty {
++        return text
++    }
++    let protectedKeys: [NSAttributedString.Key] = [
++        ChatTextInputAttributes.monospace,
++        ChatTextInputAttributes.textUrl,
++        ChatTextInputAttributes.textMention,
++        ChatTextInputAttributes.customEmoji,
++        ChatTextInputAttributes.date
++    ]
++    let result = NSMutableAttributedString(attributedString: text)
++    // С конца, чтобы вставка не сдвигала ещё не обработанные места.
++    for offset in offsets.reversed() {
++        if offset <= 0 || offset >= result.length {
++            continue
++        }
++        let attributes = result.attributes(at: offset - 1, effectiveRange: nil)
++        if protectedKeys.contains(where: { attributes[$0] != nil }) {
++            continue
++        }
++        result.insert(NSAttributedString(string: ",", attributes: attributes), at: offset)
++    }
++    return result
 +}
 diff --git a/submodules/TelegramUI/Sources/Kasper/KasperElevenLabsRecording.swift b/submodules/TelegramUI/Sources/Kasper/KasperElevenLabsRecording.swift
 new file mode 100644
