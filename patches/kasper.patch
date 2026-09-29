@@ -9866,7 +9866,7 @@ new file mode 100644
 index 00000000..9bb7f831
 --- /dev/null
 +++ b/submodules/TelegramCore/Sources/Kasper/KasperSettings.swift
-@@ -0,0 +1,696 @@
+@@ -0,0 +1,792 @@
 +import Foundation
 +import Postbox
 +import SwiftSignalKit
@@ -10398,6 +10398,15 @@ index 00000000..9bb7f831
 +    case echo
 +    case monster
 +    case oldMan
++    case animeGirl
++    case tsundere
++    case ashab
++    case mellstroy
++    case morgenshtern
++    case instasamka
++    case khovanskiy
++    case milokhin
++    case buster
 +
 +    public var title: String {
 +        switch self {
@@ -10419,6 +10428,24 @@ index 00000000..9bb7f831
 +            return "Монстр"
 +        case .oldMan:
 +            return "Старик"
++        case .animeGirl:
++            return "Аниме-тян"
++        case .tsundere:
++            return "Цундере"
++        case .ashab:
++            return "Асхаб"
++        case .mellstroy:
++            return "Mellstroy"
++        case .morgenshtern:
++            return "Моргенштерн"
++        case .instasamka:
++            return "Инстасамка"
++        case .khovanskiy:
++            return "Хованский"
++        case .milokhin:
++            return "Милохин"
++        case .buster:
++            return "Бустер"
 +        }
 +    }
 +
@@ -10442,6 +10469,24 @@ index 00000000..9bb7f831
 +            return "👹"
 +        case .oldMan:
 +            return "🧓"
++        case .animeGirl:
++            return "🌸"
++        case .tsundere:
++            return "😤"
++        case .ashab:
++            return "🥊"
++        case .mellstroy:
++            return "🎰"
++        case .morgenshtern:
++            return "🎤"
++        case .instasamka:
++            return "💅"
++        case .khovanskiy:
++            return "🎸"
++        case .milokhin:
++            return "✨"
++        case .buster:
++            return "🎮"
 +        }
 +    }
 +
@@ -10462,6 +10507,22 @@ index 00000000..9bb7f831
 +            return 0.58
 +        case .oldMan:
 +            return 0.9
++        case .animeGirl:
++            return 1.45
++        case .tsundere:
++            return 1.38
++        case .instasamka:
++            return 1.28
++        case .milokhin:
++            return 1.06
++        case .buster, .morgenshtern:
++            return 0.95
++        case .mellstroy:
++            return 0.92
++        case .khovanskiy:
++            return 0.86
++        case .ashab:
++            return 0.82
 +        }
 +    }
 +
@@ -10487,6 +10548,25 @@ index 00000000..9bb7f831
 +            return ["Clyde", "Callum", "Arnold", "Patrick", "Bill", "Adam"]
 +        case .oldMan:
 +            return ["Michael", "Fin", "Giovanni", "Bill", "George"]
++        case .animeGirl:
++            // Клонируется пользователем в My Voices; дальше — общий девичий голос.
++            return ["Anime Girl", "Аниме", "Аниме-тян", "Gigi", "Mimi", "Freya", "Lily"]
++        case .tsundere:
++            return ["Tsundere", "Цундере", "Gigi", "Freya", "Alice", "Lily"]
++        case .ashab:
++            return ["Ashab Tamaev", "Ashab", "Асхаб", "Асхаб Тамаев", "Clyde", "Callum", "Adam"]
++        case .mellstroy:
++            return ["Mellstroy", "Меллстрой", "Andrey Burim", "Андрей Бурим", "Antoni", "Liam", "Adam"]
++        case .morgenshtern:
++            return ["Morgenshtern", "Моргенштерн", "Alisher", "Алишер", "Morgen", "Antoni", "Josh"]
++        case .instasamka:
++            return ["Instasamka", "Инстасамка", "Daria Zoteeva", "Дарья Зотеева", "Alice", "Charlotte", "Lily"]
++        case .khovanskiy:
++            return ["Khovanskiy", "Хованский", "Yuri Khovanskiy", "Юрий Хованский", "Brian", "Daniel", "Bill"]
++        case .milokhin:
++            return ["Milokhin", "Милохин", "Danya Milokhin", "Даня Милохин", "Liam", "Antoni", "Josh"]
++        case .buster:
++            return ["Buster", "Бустер", "Liam", "Antoni", "Adam"]
 +        }
 +    }
 +
@@ -10506,6 +10586,12 @@ index 00000000..9bb7f831
 +            return ("male", "middle_aged")
 +        case .oldMan:
 +            return ("male", "old")
++        case .animeGirl, .tsundere, .instasamka:
++            return ("female", "young")
++        case .ashab, .mellstroy, .morgenshtern, .milokhin, .buster:
++            return ("male", "young")
++        case .khovanskiy:
++            return ("male", "middle_aged")
 +        }
 +    }
 +
@@ -10513,7 +10599,9 @@ index 00000000..9bb7f831
 +    /// Для обычных голосов — ничего: ElevenLabs уже выдал живой голос.
 +    public var elevenLabsPostEffect: KasperVoice {
 +        switch self {
-+        case .none, .female, .male, .child, .oldMan:
++        case .none, .female, .male, .child, .oldMan,
++             .animeGirl, .tsundere, .ashab, .mellstroy, .morgenshtern,
++             .instasamka, .khovanskiy, .milokhin, .buster:
 +            return .none
 +        case .robot, .pixel, .echo, .monster:
 +            return self
@@ -10548,6 +10636,14 @@ index 00000000..9bb7f831
 +            return 1.15
 +        case .oldMan:
 +            return 1.0
++        case .animeGirl, .tsundere, .instasamka:
++            return 1.05
++        case .milokhin, .buster, .morgenshtern:
++            return 1.0
++        case .mellstroy, .khovanskiy:
++            return 1.05
++        case .ashab:
++            return 1.08
 +        }
 +    }
 +}
@@ -12506,7 +12602,7 @@ new file mode 100644
 index 00000000..fc5088c5
 --- /dev/null
 +++ b/submodules/TelegramUI/Sources/Kasper/KasperVoiceEffect.swift
-@@ -0,0 +1,180 @@
+@@ -0,0 +1,182 @@
 +import Foundation
 +import TelegramCore
 +
@@ -12662,7 +12758,9 @@ index 00000000..fc5088c5
 +            switch self.voice {
 +            case .none:
 +                break
-+            case .female, .male, .child:
++            case .female, .male, .child,
++                 .animeGirl, .tsundere, .ashab, .mellstroy, .morgenshtern,
++                 .instasamka, .khovanskiy, .milokhin, .buster:
 +                value = self.pitchShifted(value)
 +            case .robot:
 +                value = self.robot(self.pitchShifted(value))
